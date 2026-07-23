@@ -28,3 +28,9 @@ def get_db():
 def init_db():
     """Create all database tables."""
     Base.metadata.create_all(bind=engine)
+
+
+def reset_db():
+    """Drop all tables and recreate them — use in tests for isolation."""
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
