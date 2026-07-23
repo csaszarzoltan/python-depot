@@ -1,14 +1,6 @@
 # Catalog API
 
-The Catalog API provides comprehensive package discovery and management functionality for Python packages.
-
-## Overview
-
-The catalog system allows you to:
-- Browse all available packages
-- Search for specific packages by name
-- Create, update, and delete package entries
-- Access detailed package metadata
+The Catalog API provides package discovery, CRUD management, full-text search, and time-series trends for Python packages.
 
 ## Endpoints
 
@@ -16,57 +8,103 @@ The catalog system allows you to:
 
 **GET** `/api/v1/packages/`
 
-Returns a list of all packages in the catalog.
+Returns an empty list by default (packages are populated via the PyPI catalog service or direct creation).
 
 **Response:**
 ```json
 {
-  "packages": [
-    {
-      "id": 1,
-      "name": "requests",
-      "summary": "HTTP library",
-      "description": "Requests is a port of cURL for Python",
-      "homepage": "https://requests.readthedocs.io",
-      "repository": "https://github.com/psf/requests",
-      "author": "Kenneth Reitz",
-      "license": "Apache-2.0",
-      "latest_version": "2.31.0"
-    }
-  ],
-  "total": 1
+  "packages": [],
+  "total": 0
 }
 ```
 
-### Get Package Details
+### Get Package Health Report
 
 **GET** `/api/v1/packages/{package_name}`
 
-Retrieves detailed information about a specific package.
+Returns a synthetic health report for a package. Package names must match `[a-zA-Z0-9][a-zA-Z0-9._-]*` (PEP 508 compliant). Invalid names return `422`.
 
 **Path Parameters:**
-- `package_name` (string, required): The name of the package to retrieve
+- `package_name` (string, required): The name of the package
+
+**Response (valid name, found):**
+```json
+{
+  "name": "requests",
+  "health_score": 85,
+  "latest_version": "1.0.0",
+  "dependency_status": "up-to-date",
+  "vulnerability_count": 0
+}
+```
+
+**Response (not found — 404):**
+```json
+{
+  "found": false,
+  "name": "nonexistent-package"
+}
+```
+
+### Search Packages
+
+**GET** `/api/v1/packages/search`
+
+Full-text search with pagination. Requires the `q` parameter (returns `422` if missing).
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `q` | string | required | Search query |
+| `page` | integer | 1 | Page number (≥1) |
+| `page_size` | integer | 20 | Results per page (1–100) |
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "name": "requests",
+      "summary": "Packages matching 'requests'",
+      "score": 1.0
+    }
+  ],
+  "total": 1,
+  "query": "requests"
+}
+```
+
+### Get Package Trends
+
+**GET** `/api/v1/packages/{package_name}/trends`
+
+Returns daily download and star count time-series data for a package.
+
+**Path Parameters:**
+- `package_name` (string, required): The name of the package
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `period` | string | `30d` | One of `7d`, `30d`, `90d` |
 
 **Response:**
 ```json
 {
   "name": "requests",
-  "found": true,
-  "summary": "HTTP library",
-  "description": "Requests is a port of cURL for Python",
-  "homepage": "https://requests.readthedocs.io",
-  "repository": "https://github.com/psf/requests",
-  "author": "Kenneth Reitz",
-  "license": "Apache-2.0",
-  "latest_version": "2.31.0"
+  "trends": [
+    {"date": "2026-06-23", "downloads": 100, "stars": 10},
+    {"date": "2026-06-24", "downloads": 101, "stars": 11}
+  ],
+  "period": "30d"
 }
 ```
 
-### Create New Package
+### Create Package
 
 **POST** `/api/v1/packages/`
 
-Creates a new package entry in the catalog.
+Registers a new package in the catalog.
 
 **Request Body:**
 ```json
@@ -85,11 +123,7 @@ Creates a new package entry in the catalog.
 **Response:**
 ```json
 {
-  "status": "created",
-  "package": {
-    "name": "new-package",
-    "id": 2
-  }
+  "status": "created"
 }
 ```
 
@@ -98,9 +132,6 @@ Creates a new package entry in the catalog.
 **PUT** `/api/v1/packages/{package_name}`
 
 Updates an existing package's metadata.
-
-**Path Parameters:**
-- `package_name` (string, required): The name of the package to update
 
 **Request Body:**
 ```json
@@ -124,9 +155,6 @@ Updates an existing package's metadata.
 
 Removes a package from the catalog.
 
-**Path Parameters:**
-- `package_name` (string, required): The name of the package to delete
-
 **Response:**
 ```json
 {
@@ -134,24 +162,6 @@ Removes a package from the catalog.
   "status": "deleted"
 }
 ```
-
-## Models
-
-### Package
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | integer | Unique identifier |
-| `name` | string | Package name (unique) |
-| `summary` | string | Brief package summary |
-| `description` | string | Detailed description |
-| `homepage` | string | Official homepage URL |
-| `repository` | string | Source repository URL |
-| `author` | string | Package author |
-| `license` | string | License type |
-| `latest_version` | string | Latest available version |
-| `created_at` | datetime | Creation timestamp |
-| `updated_at` | datetime | Last update timestamp |
 
 ## Example Usage
 
@@ -163,34 +173,27 @@ import asyncio
 
 async def catalog_examples():
     base_url = "http://localhost:8000"
-    
-    # 1. List all packages
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"{base_url}/api/v1/packages/")
-        packages = response.json()
-        print(f"Found {packages['total']} packages")
-        
-        # 2. Get specific package
-        response = await client.get(f"{base_url}/api/v1/packages/requests")
-        package = response.json()
-        print(f"Package found: {package['found']}")
-        
-        # 3. Create new package
-        new_package = {
-            "name": "mcp-sdk",
-            "summary": "Model Context Protocol SDK for Python",
-            "description": "A Python SDK for building MCP servers and clients",
-            "homepage": "https://github.com/modelcontextprotocol/sdk-python",
-            "repository": "https://github.com/modelcontextprotocol/sdk-python",
-            "author": "Model Context Protocol Team",
-            "license": "MIT",
-            "latest_version": "0.1.0"
-        }
-        response = await client.post(f"{base_url}/api/v1/packages/", json=new_package)
-        result = response.json()
-        print(f"Created package: {result}")
 
-# Run the examples
+    async with httpx.AsyncClient() as client:
+        # 1. List all packages
+        response = await client.get(f"{base_url}/api/v1/packages/")
+        print(f"Total packages: {response.json()['total']}")
+
+        # 2. Search packages
+        response = await client.get(
+            f"{base_url}/api/v1/packages/search",
+            params={"q": "requests", "page": 1, "page_size": 10}
+        )
+        print(f"Search results: {response.json()['total']}")
+
+        # 3. Get trends
+        response = await client.get(
+            f"{base_url}/api/v1/packages/requests/trends",
+            params={"period": "7d"}
+        )
+        data = response.json()
+        print(f"Trends for {data['name']}: {len(data['trends'])} data points")
+
 asyncio.run(catalog_examples())
 ```
 
@@ -200,37 +203,33 @@ asyncio.run(catalog_examples())
 # List all packages
 curl http://localhost:8000/api/v1/packages/
 
-# Get package details
-curl http://localhost:8000/api/v1/packages/requests
+# Search packages
+curl "http://localhost:8000/api/v1/packages/search?q=requests&page=1&page_size=10"
 
-# Create new package
+# Get trends
+curl "http://localhost:8000/api/v1/packages/requests/trends?period=7d"
+
+# Create package
 curl -X POST http://localhost:8000/api/v1/packages/ \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "mcp-sdk",
-    "summary": "Model Context Protocol SDK for Python",
-    "description": "A Python SDK for building MCP servers and clients",
-    "homepage": "https://github.com/modelcontextprotocol/sdk-python",
-    "repository": "https://github.com/modelcontextprotocol/sdk-python",
-    "author": "Model Context Protocol Team",
-    "license": "MIT",
-    "latest_version": "0.1.0"
-  }'
+  -d '{"name": "demo-pkg", "summary": "Demo package", "license": "MIT"}'
+
+# Update package
+curl -X PUT http://localhost:8000/api/v1/packages/demo-pkg \
+  -H "Content-Type: application/json" \
+  -d '{"summary": "Updated summary"}'
+
+# Delete package
+curl -X DELETE http://localhost:8000/api/v1/packages/demo-pkg
 ```
 
-## Testing
+## Error Handling
 
-```bash
-# Run catalog-specific tests
-pytest tests/test_packages.py -v
-
-# Test with specific package
-pytest tests/test_packages.py::test_get_package_not_found -v
-```
-
-## Rate Limiting
-
-Catalog endpoints do not currently enforce rate limiting. For production use, consider implementing rate limiting middleware.
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Request successful |
+| `404` | Package not found |
+| `422` | Invalid package name or missing `q` parameter |
 
 ---
 *Catalog API documentation for PythonDepot*

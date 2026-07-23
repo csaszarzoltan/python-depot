@@ -1,14 +1,6 @@
-# Ratings API
+# Ratings & Reviews API
 
-The Ratings API provides comprehensive package rating and review functionality for the Python package catalog.
-
-## Overview
-
-The ratings system allows users to:
-- Submit ratings for packages
-- Retrieve rating information and summaries
-- Access rating distributions
-- Manage package feedback
+The Ratings & Reviews API provides package rating (1-5 stars) and review functionality with moderation support.
 
 ## Endpoints
 
@@ -25,17 +17,8 @@ Retrieves all ratings for a specific package.
 ```json
 {
   "package": "requests",
-  "ratings": [
-    {
-      "id": 1,
-      "user": "developer1",
-      "score": 5,
-      "review": "Excellent package!",
-      "created_at": "2024-01-15T10:30:00Z"
-    }
-  ],
-  "average": 4.5,
-  "total": 1
+  "ratings": [],
+  "average": 0.0
 }
 ```
 
@@ -43,7 +26,7 @@ Retrieves all ratings for a specific package.
 
 **POST** `/api/v1/ratings/{package_name}`
 
-Submits a new rating for a package.
+Submits or updates a rating for a package.
 
 **Path Parameters:**
 - `package_name` (string, required): The name of the package
@@ -51,10 +34,7 @@ Submits a new rating for a package.
 **Request Body:**
 ```json
 {
-  "user": "developer1",
-  "score": 5,
-  "review": "Excellent package! Very reliable and well-maintained.",
-  "version": "2.31.0"
+  "score": 5
 }
 ```
 
@@ -62,14 +42,7 @@ Submits a new rating for a package.
 ```json
 {
   "package": "requests",
-  "status": "rated",
-  "rating": {
-    "id": 1,
-    "user": "developer1",
-    "score": 5,
-    "review": "Excellent package! Very reliable and well-maintained.",
-    "created_at": "2024-01-15T10:30:00Z"
-  }
+  "status": "rated"
 }
 ```
 
@@ -77,58 +50,80 @@ Submits a new rating for a package.
 
 **GET** `/api/v1/ratings/{package_name}/summary`
 
-Retrieves a summary of ratings including distribution statistics.
-
-**Path Parameters:**
-- `package_name` (string, required): The name of the package
+Retrieves the rating distribution (count of each score 1-5).
 
 **Response:**
 ```json
 {
   "package": "requests",
-  "summary": {
-    "average": 4.5,
-    "total": 1,
-    "distribution": {
-      "1": 0,
-      "2": 0,
-      "3": 0,
-      "4": 1,
-      "5": 3
-    },
-    "breakdown": {
-      "5": "Excellent",
-      "4": "Good",
-      "3": "Average",
-      "2": "Below Average",
-      "1": "Poor"
-    }
+  "distribution": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0
   }
 }
 ```
 
-## Models
+### List Reviews
 
-### Rating
+**GET** `/api/v1/reviews/{package_name}`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | integer | Unique identifier |
-| `package` | string | Package name |
-| `user` | string | User who submitted rating |
-| `score` | integer | Rating score (1-5) |
-| `review` | string | Optional review text |
-| `version` | string | Package version rated |
-| `created_at` | datetime | Creation timestamp |
+Lists all reviews for a package.
 
-### Rating Summary
+**Response:**
+```json
+{
+  "package": "requests",
+  "reviews": [],
+  "total": 0
+}
+```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `average` | float | Average rating score |
-| `total` | integer | Total number of ratings |
-| `distribution` | object | Count per score (1-5) |
-| `breakdown` | object | Human-readable description per score |
+### Submit Review
+
+**POST** `/api/v1/reviews/{package_name}`
+
+Submits a new review. Pydantic-validated body with rating (1-5), comment, and reviewer fields.
+
+**Request Body:**
+```json
+{
+  "rating": 5,
+  "comment": "Excellent HTTP library!",
+  "reviewer": "demo-user"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "package": "requests",
+  "review_id": 1,
+  "timestamp": "2026-07-23T13:00:00Z"
+}
+```
+
+Validation rules:
+- `rating`: integer, 1–5 (422 if out of range)
+- `comment`: non-empty string
+- `reviewer`: non-empty string
+
+### Get Specific Review
+
+**GET** `/api/v1/reviews/{package_name}/{review_id}`
+
+Retrieves a specific review by ID.
+
+**Response:**
+```json
+{
+  "package": "requests",
+  "review_id": 1,
+  "found": false
+}
+```
 
 ## Example Usage
 
@@ -137,105 +132,69 @@ Retrieves a summary of ratings including distribution statistics.
 ```python
 import httpx
 import asyncio
-from typing import List
 
 async def ratings_examples():
     base_url = "http://localhost:8000"
-    
-    # 1. Get existing ratings for a package
+
     async with httpx.AsyncClient() as client:
+        # 1. Get ratings
         response = await client.get(f"{base_url}/api/v1/ratings/requests")
-        ratings_data = response.json()
-        print(f"Package: {ratings_data['package']}")
-        print(f"Average rating: {ratings_data['average']}")
-        print(f"Total ratings: {ratings_data['total']}")
-        
-        # 2. Submit a new rating
-        new_rating = {
-            "user": "new-developer",
-            "score": 5,
-            "review": "Perfect for API development!",
-            "version": "2.31.0"
-        }
+        data = response.json()
+        print(f"Average rating: {data['average']}")
+
+        # 2. Submit rating
         response = await client.post(
             f"{base_url}/api/v1/ratings/requests",
-            json=new_rating
+            json={"score": 5}
         )
-        result = response.json()
-        print(f"Submitted rating: {result['status']}")
-        
+        print(f"Rating status: {response.json()['status']}")
+
         # 3. Get rating summary
         response = await client.get(f"{base_url}/api/v1/ratings/requests/summary")
-        summary = response.json()
-        print(f"Rating distribution: {summary['summary']['distribution']}")
+        data = response.json()
+        print(f"Distribution: {data['distribution']}")
 
-# Run the examples
+        # 4. Submit review
+        response = await client.post(
+            f"{base_url}/api/v1/reviews/requests",
+            json={"rating": 5, "comment": "Great!", "reviewer": "demo"}
+        )
+        print(f"Review ID: {response.json()['review_id']}")
+
 asyncio.run(ratings_examples())
 ```
 
 ### Shell Commands
 
 ```bash
-# Get package ratings
+# Get ratings
 curl http://localhost:8000/api/v1/ratings/requests
 
-# Submit a rating
+# Submit rating
 curl -X POST http://localhost:8000/api/v1/ratings/requests \
   -H "Content-Type: application/json" \
-  -d '{
-    "user": "demo-user",
-    "score": 5,
-    "review": "Great package for web development!",
-    "version": "2.31.0"
-  }'
+  -d '{"score": 5}'
 
 # Get rating summary
 curl http://localhost:8000/api/v1/ratings/requests/summary
-```
 
-## Testing
+# Submit review
+curl -X POST http://localhost:8000/api/v1/reviews/requests \
+  -H "Content-Type: application/json" \
+  -d '{"rating": 5, "comment": "Great package!", "reviewer": "demo-user"}'
 
-```bash
-# Run rating-specific tests
-pytest tests/test_ratings.py -v
-
-# Test rating submission
-pytest tests/test_ratings.py::test_get_ratings_returns_empty -v
-
-# Test rating summary
-pytest tests/test_ratings.py::test_rating_summary -v
+# List reviews
+curl http://localhost:8000/api/v1/reviews/requests
 ```
 
 ## Error Handling
 
-### Common HTTP Status Codes
-
 | Status Code | Description |
 |-------------|-------------|
 | `200` | Request successful |
+| `201` | Review created successfully |
 | `404` | Package not found |
-| `400` | Invalid request data |
-
-### Example Error Response
-
-```json
-{
-  "detail": "Package 'nonexistent-package' not found in catalog"
-}
-```
-
-## Rate Limiting
-
-Ratings endpoints have a rate limit of 100 requests per minute per IP address. Submissions are limited to 10 per minute.
-
-## Integration with Catalog API
-
-The Ratings API integrates with the Catalog API to provide a complete package feedback system:
-
-1. **Package Discovery**: Users browse packages via Catalog API
-2. **Rating Information**: Users see ratings via Ratings API
-3. **Quality Signals**: Higher-rated packages get better visibility
-4. **Continuous Feedback**: New ratings continuously update package scores
+| `422` | Invalid rating (must be 1-5), empty comment or reviewer |
 
 ---
-*Ratings API documentation for PythonDepot*
+*Ratings & Reviews API documentation for PythonDepot*
