@@ -1,4 +1,4 @@
-"""Tests for packages router."""
+"""Tests for packages router — updated for new behavioral contract."""
 import pytest
 
 
@@ -14,6 +14,5 @@ async def test_list_packages_returns_empty(client):
 @pytest.mark.anyio
 async def test_get_package_not_found(client):
     response = await client.get("/api/v1/packages/nonexistent")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["found"] is False
+    # Per the behavioural contract non-existent packages return 404
+    assert response.status_code == 404

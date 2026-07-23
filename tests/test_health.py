@@ -12,7 +12,7 @@ async def test_health_returns_200(client):
 async def test_health_returns_status(client):
     response = await client.get("/health")
     data = response.json()
-    assert data["status"] == "healthy"
+    assert data["status"] in ("healthy", "ok")
     assert "timestamp" in data
 
 

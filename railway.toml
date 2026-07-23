@@ -1,9 +1,19 @@
+# Railway Deploy Configuration
+# Pattern source: shared/patterns/railway-deploy-config.md
+
 [build]
-builder = "nixpacks"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "uvicorn src.app:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
-healthcheckTimeout = 300
-restartPolicyType = "on_failure"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+startCommand = "uvicorn python_depot.api:app --host 0.0.0.0 --port ${PORT:-8000}"
+
+[environments.production]
+variables = { ENVIRONMENT = "production", LOG_LEVEL = "info", PYTHONUNBUFFERED = "1" }
+
+[environments.staging]
+variables = { ENVIRONMENT = "staging", LOG_LEVEL = "debug" }

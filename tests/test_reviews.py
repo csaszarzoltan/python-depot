@@ -1,4 +1,4 @@
-"""Tests for reviews router."""
+"""Tests for reviews router — updated for new behavioral contract."""
 import pytest
 
 
