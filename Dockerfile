@@ -25,4 +25,4 @@ USER app
 EXPOSE 8000
 
 # Start the FastAPI application
-CMD ["uvicorn", "python_depot.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn python_depot.api:app --host :: --port ${PORT:-8000}"]
