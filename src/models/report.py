@@ -1,5 +1,5 @@
 """Monthly report model."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,5 +19,5 @@ class MonthlyReport(Base):
     report_html: Mapped[str] = mapped_column(Text, nullable=False)
     report_json: Mapped[str] = mapped_column(Text, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )

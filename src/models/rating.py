@@ -1,5 +1,5 @@
 """Rating model."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,5 +18,5 @@ class Rating(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     score: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )

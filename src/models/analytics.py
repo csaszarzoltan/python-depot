@@ -1,5 +1,5 @@
 """Analytics event model."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,5 +18,5 @@ class AnalyticsEvent(Base):
     user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )

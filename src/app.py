@@ -1,5 +1,5 @@
 """FastAPI application factory for PythonDepot."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
@@ -28,7 +28,7 @@ def create_app() -> FastAPI:
 
     @application.get("/health")
     async def health():
-        return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+        return {"status": "healthy", "timestamp": datetime.now(UTC).isoformat()}
 
     return application
 

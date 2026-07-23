@@ -1,9 +1,8 @@
 """Catalog service — PyPI Simple API client, metadata fetcher, SQLite storage."""
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
@@ -47,7 +46,7 @@ class CatalogService:
                         return None
                     resp.raise_for_status()
                     return await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, aiohttp.ClientError) as exc:
             logger.error("Failed to fetch metadata for %s: %s", name, exc)
             return None
 
@@ -72,7 +71,7 @@ class CatalogService:
             existing.author = info.get("author")
             existing.license = info.get("license")
             existing.latest_version = version
-            existing.updated_at = datetime.now(timezone.utc)
+            existing.updated_at = datetime.now(UTC)
             self.db.commit()
             self.db.refresh(existing)
             return existing

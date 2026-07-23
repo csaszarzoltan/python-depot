@@ -9,30 +9,31 @@ Prerequisites:
 - httpx library installed
 """
 
-import httpx
 import asyncio
-from typing import Dict, Any
+
+import httpx
+
 
 async def basic_package_operations():
     """Example: Basic package operations using Catalog API."""
     base_url = "http://localhost:8000"
-    
+
     async with httpx.AsyncClient() as client:
         print("🚀 Starting Catalog API Examples")
         print("=" * 50)
-        
+
         # 1. List all packages
         print("\n1. 📋 Listing all packages...")
         response = await client.get(f"{base_url}/api/v1/packages/")
         packages_data = response.json()
         print(f"Found {packages_data['total']} packages")
-        
+
         # 2. Get specific package (requests exists by default in tests)
         print("\n2. 🔍 Getting package 'requests'...")
         response = await client.get(f"{base_url}/api/v1/packages/requests")
         package_data = response.json()
         print(f"Package 'requests' found: {package_data['found']}")
-        
+
         # 3. Create new package
         print("\n3. ➕ Creating new package...")
         new_package = {
@@ -48,7 +49,7 @@ async def basic_package_operations():
         response = await client.post(f"{base_url}/api/v1/packages/", json=new_package)
         create_result = response.json()
         print(f"Created package: {create_result['status']} (ID: {create_result.get('package', {}).get('id', 'N/A')})")
-        
+
         # 4. Update the newly created package
         print("\n4. 📝 Updating package 'mcp-sdk-demo'...")
         update_data = {
@@ -58,19 +59,19 @@ async def basic_package_operations():
         response = await client.put(f"{base_url}/api/v1/packages/mcp-sdk-demo", json=update_data)
         update_result = response.json()
         print(f"Updated package: {update_result['status']}")
-        
+
         # 5. Get the updated package
         print("\n5. 🔄 Verifying updated package...")
         response = await client.get(f"{base_url}/api/v1/packages/mcp-sdk-demo")
         updated_package = response.json()
         print(f"Updated package found: {updated_package['found']}")
-        
+
         # 6. Delete the package (cleanup)
         print("\n6. 🗑️ Deleting created package...")
         response = await client.delete(f"{base_url}/api/v1/packages/mcp-sdk-demo")
         delete_result = response.json()
         print(f"Deleted package: {delete_result['status']}")
-        
+
         print("\n✅ All catalog operations completed successfully!")
         print("\n📊 Summary of operations:")
         print("  - Listed all packages")

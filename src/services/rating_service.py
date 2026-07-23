@@ -1,7 +1,7 @@
 """Rating service — rating/review CRUD, moderation queue."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -47,7 +47,7 @@ class RatingService:
         )
         if existing:
             existing.score = score
-            existing.created_at = datetime.now(timezone.utc)
+            existing.created_at = datetime.now(UTC)
             self.db.commit()
             return {"package": package_name, "status": "rated", "score": score}
 
@@ -201,6 +201,6 @@ class RatingService:
             return {"error": "invalid_action"}
 
         review.moderation_status = "approved" if action == "approve" else "rejected"
-        review.moderated_at = datetime.now(timezone.utc)
+        review.moderated_at = datetime.now(UTC)
         self.db.commit()
         return {"review_id": review_id, "status": review.moderation_status}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +81,7 @@ class ReportService:
         report_data = {
             "year": year,
             "month": month,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "top_by_rating": top_by_rating[:10],
             "healthiest": healthiest[:10],
             "most_reviewed": most_reviewed[:10],
