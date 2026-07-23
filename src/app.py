@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 
-from src.routers import analytics, packages, ratings, reviews, vulnerabilities
+from src.routers import analytics, packages, ratings, reports, reviews, vulnerabilities
 
 
 def create_app() -> FastAPI:
@@ -20,6 +20,7 @@ def create_app() -> FastAPI:
     application.include_router(reviews.router, prefix="/api/v1/reviews", tags=["reviews"])
     application.include_router(vulnerabilities.router, prefix="/api/v1/vulnerabilities", tags=["vulnerabilities"])
     application.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
+    application.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
 
     @application.get("/")
     async def root():
