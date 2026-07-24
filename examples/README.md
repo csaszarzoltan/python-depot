@@ -22,6 +22,7 @@ uvicorn python_depot.api:app --reload
 | 3 | `health_checks.py` | Health endpoint, vulnerability scanning |
 | 4 | `search_and_trends.py` | Package search with pagination, time-series trends |
 | 5 | `reviews_and_ratings.py` | Ratings, reviews, and rating summaries |
+| 6 | `dependency_scanning.py` | OSV scanning, dashboard, alerts, health scores |
 
 ## Usage
 
@@ -35,6 +36,7 @@ python catalog_api.py
 python health_checks.py
 python search_and_trends.py
 python reviews_and_ratings.py
+python dependency_scanning.py
 ```
 
 Each example:

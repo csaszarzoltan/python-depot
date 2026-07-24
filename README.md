@@ -2,7 +2,8 @@
 
 Curated Python package discovery platform — search, rate, review, and monitor Python packages through a single FastAPI service.
 
-[![Tests](https://img.shields.io/badge/tests-50%2F50-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)](./tests)
+[![Security](https://img.shields.io/badge/security-dashboard-blue)](./docs/dependency-health.md)
 [![Ruff](https://img.shields.io/badge/ruff-passing-brightgreen)](./pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](./pyproject.toml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -19,8 +20,11 @@ Curated Python package discovery platform — search, rate, review, and monitor 
 | 📈 **Trends** | Time-series download/star data | `GET /api/v1/packages/{name}/trends?period=7d\|30d\|90d` |
 | ⭐ **Ratings** | 1-5 star ratings with distribution | `GET/POST /api/v1/ratings/{name}`, `/summary` |
 | 💬 **Reviews** | User reviews with moderation queue | `GET/POST /api/v1/reviews/{name}` |
-| 🔒 **Vulnerabilities** | safety CLI integration, CVE scanning | `GET/POST /api/v1/vulnerabilities/{name}` |
-| 📊 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
+|| 🔒 **Vulnerabilities** | safety CLI + OSV.dev scanning | `GET/POST /api/v1/vulnerabilities/{name}` |
+|| 🛡️ **Security Dashboard** | Health overview, trends, package scoring | `GET /api/v1/dependency-health/*` |
+|| ⚠️ **Alerts** | New-vuln detection + webhook delivery | `GET /api/v1/dependency-health/alerts` |
+|| 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
+|| 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
 | 📋 **Reports** | Monthly Best-of reports (JSON + HTML) | `GET/POST /api/v1/reports/` |
 | ❤️ **Health** | Detailed health check with DB status | `GET /health` |
 | 🛡️ **SSRF Protection** | URL validation on all external calls | Built-in `validate_url()` |
@@ -33,7 +37,8 @@ Curated Python package discovery platform — search, rate, review, and monitor 
 
 - **Python 3.12+**
 - **SQLite** (default, no setup required) or PostgreSQL
-- **Safety CLI** (optional, for vulnerability scanning): `pip install safety`
+- **Safety CLI** (optional, for legacy vulnerability scanning): `pip install safety`
+- **httpx** (bundled, for OSV.dev API scanning — no install needed)
 
 ### Setup
 
@@ -79,6 +84,12 @@ curl -X POST http://localhost:8000/api/v1/ratings/requests \
 curl -X POST http://localhost:8000/api/v1/reviews/requests \
   -H "Content-Type: application/json" \
   -d '{"rating": 5, "comment": "Excellent HTTP library!", "reviewer": "demo-user"}'
+
+# 7. Check security dashboard
+curl http://localhost:8000/api/v1/dependency-health/overview
+
+# 8. Get package health score
+curl http://localhost:8000/api/v1/dependency-health/requests/score
 ```
 
 ### Interactive Docs
@@ -122,6 +133,16 @@ curl -X POST http://localhost:8000/api/v1/reviews/requests \
 | GET | `/api/v1/vulnerabilities/{name}` | List vulnerability scans |
 | POST | `/api/v1/vulnerabilities/{name}/scan` | Trigger a new scan |
 | GET | `/api/v1/vulnerabilities/{name}/latest` | Get the most recent scan result |
+
+### Security Dashboard
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/dependency-health/overview` | Aggregate vulnerability stats across all packages |
+| GET | `/api/v1/dependency-health/trends` | Vulnerability trend data over time |
+| GET | `/api/v1/dependency-health/packages` | Packages sorted by health score |
+| GET | `/api/v1/dependency-health/alerts` | Recent vulnerability alerts |
+| GET | `/api/v1/dependency-health/{name}/score` | Composite security score for a package |
 
 ### Analytics
 
@@ -192,7 +213,7 @@ pip install -e ".[dev]"
 ### Run Tests
 
 ```bash
-# All tests (50 behavioral + interface tests)
+# All tests (176 behavioral + interface tests)
 pytest -v
 
 # Specific module
@@ -217,16 +238,34 @@ python-depot/
 │   ├── api.py                 # FastAPI app factory (canonical)
 │   ├── database.py            # SQLAlchemy engine + session
 │   ├── dependency_health/     # Vulnerability scanner module
-│   │   ├── models.py
-│   │   └── scanner.py
+│   │   ├── __init__.py
+│   │   ├── alerts.py         # AlertEngine with webhook delivery
+│   │   ├── models.py         # VulnerabilityScan + VulnerabilityAlert
+│   │   ├── osv_client.py     # OSV.dev async API client
+│   │   ├── scanner.py        # DependencyScanner + HealthScanner
+│   │   └── scoring.py        # CVSS v3.1 calculator + aggregate scoring
 │   ├── pydepot/               # PyPI analytics + catalog service
+│   │   ├── __init__.py
 │   │   ├── analytics.py
 │   │   ├── catalog.py
 │   │   ├── models.py
 │   │   └── reports.py
-│   └── ratings/               # Ratings & reviews service
-│       ├── models.py
-│       └── service.py
+│   ├── ratings/               # Ratings & reviews service
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   └── service.py
+│   ├── routers/               # FastAPI route handlers
+│   │   ├── __init__.py
+│   │   ├── analytics.py
+│   │   ├── dependency_health.py  # Security dashboard endpoints
+│   │   ├── packages.py
+│   │   ├── ratings.py
+│   │   ├── reports.py
+│   │   ├── reviews.py
+│   │   └── vulnerabilities.py
+│   ├── __init__.py
+│   ├── api.py                 # FastAPI app factory (canonical)
+│   └── database.py            # SQLAlchemy engine + session
 ├── src/                       # Legacy source (re-exports from python_depot)
 │   ├── app.py                 # → re-exports python_depot.api
 │   ├── routers/               # API route handlers
@@ -238,7 +277,7 @@ python-depot/
 │   │   └── reports.py
 │   ├── services/              # Service layer classes
 │   └── templates/             # Report HTML templates
-├── tests/                     # Test suite (50 tests)
+├── tests/                     # Test suite (176+ tests)
 ├── docs/                      # Per-feature documentation
 ├── examples/                  # Runnable Python example scripts
 ├── Dockerfile                 # Railway/Docker deployment
@@ -253,14 +292,15 @@ python-depot/
 
 PythonDepot uses a modular architecture with three extracted domain modules:
 
-- **dependency_health** — `HealthScanner` class wrapping the `safety` CLI for vulnerability scanning, plus `VulnerabilityScan` model
+- **dependency_health** — `DependencyScanner` class with async OSV.dev API for vulnerability scanning, `AlertEngine` for new-vuln detection and webhook delivery, `calculate_severity()` for CVSS v3.1 scoring, and `VulnerabilityScan`/`VulnerabilityAlert` models. Legacy `HealthScanner` wrapper for `safety` CLI remains for backward compatibility.
 - **pydepot** — `AnalyticsService` (PyPI stats, event tracking), `CatalogService` (PyPI API client), `ReportService` (Jinja2-based monthly reports)
 - **ratings** — `RatingService` class with CRUD for ratings and reviews, moderation queue
 
-The app factory in `python_depot/api.py` registers all routers and applies three shared patterns:
+The app factory in `python_depot/api.py` registers all routers and applies four shared patterns:
 1. **Health check endpoint** — detailed `/health` with DB status, version, uptime
-2. **SSRF protection** — URL validation for all outbound HTTP calls
-3. **Railway deploy config** — Dockerfile + `railway.toml` for one-click deploy
+2. **Security dashboard** — `/api/v1/dependency-health/*` with 5 endpoints for vulnerability monitoring
+3. **SSRF protection** — URL validation for all outbound HTTP calls
+4. **Railway deploy config** — Dockerfile + `railway.toml` for one-click deploy
 
 ---
 
