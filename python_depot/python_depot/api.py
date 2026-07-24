@@ -20,7 +20,6 @@ from sqlalchemy import text
 from python_depot.database import engine, init_db
 from python_depot.routers import (
     analytics,
-    dependency_health,
     packages,
     ratings,
     reports,
@@ -166,11 +165,6 @@ def create_app() -> FastAPI:
     )
     application.include_router(
         reports.router, prefix="/api/v1/reports", tags=["reports"]
-    )
-    application.include_router(
-        dependency_health.router,
-        prefix="",
-        tags=["dependency-health"],
     )
 
     # ------------------------------------------------------------------

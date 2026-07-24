@@ -130,6 +130,12 @@ class TestInterfaceRouteRegistration:
             "/api/v1/reports/generate",
             "/api/v1/reports/{year}/{month}",
             "/api/v1/reports/{year}/{month}/html",
+            # New scanning feature routes
+            "/api/v1/dependency-health/overview",
+            "/api/v1/dependency-health/trends",
+            "/api/v1/dependency-health/packages",
+            "/api/v1/dependency-health/alerts",
+            "/api/v1/dependency-health/{package_name}/score",
         }
         missing = expected - registered
         extra = registered - expected - {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}

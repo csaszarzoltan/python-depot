@@ -3,7 +3,6 @@
 Provides a shared Base for SQLAlchemy models and a session factory.
 Import Base from here to define models inside the python_depot sub-packages.
 """
-import sqlalchemy.exc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -32,14 +31,6 @@ def init_db():
 
 
 def reset_db():
-    """Drop all tables and recreate them — use in tests for isolation.
-
-    Handles fresh databases gracefully by catching ``OperationalError``
-    during drop when tables don't exist yet.
-    """
-    try:
-        Base.metadata.drop_all(bind=engine)
-    except sqlalchemy.exc.OperationalError:
-        # Fresh DB — tables may not exist yet; ignore drop failures
-        pass
+    """Drop all tables and recreate them — use in tests for isolation."""
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
