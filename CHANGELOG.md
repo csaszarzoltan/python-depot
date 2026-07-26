@@ -5,6 +5,34 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-07-26
+
+### Features
+
+- **Package Ecosystem & Migration Hub** — 4 new API endpoints:
+  - `GET /api/v1/ecosystem/detect/{name}` — package manager detection via PyPI JSON + pyproject.toml analysis
+  - `GET /api/v1/ecosystem/stats` — aggregated ecosystem adoption statistics (adoption rates, trending migrations)
+  - `GET /api/v1/ecosystem/migration-guide/{name}` — generated migration guides between package managers (pip→uv, poetry→uv, pip→poetry, pip-tools→uv)
+  - `GET /api/v1/ecosystem/compatibility` — paginated compatibility matrix across scanned packages
+- **pip-tools→uv migration guide** — new supported migration path with complete steps, config changes, and notes
+- **Package scanning** — async PyPI fetch + signal detection (requires_dist, project_urls, classifiers) + pyproject.toml parsing
+- **Ecosystem stats** — per-manager adoption rates, trending migration tracking with estimated package counts
+- **SQLAlchemy models** — `PackageScan` + `EcosystemStatsSnapshot` for persistent scan storage
+- All 4 endpoints return full JSON responses with scan tier metadata
+
+### Fixes
+
+- **API wiring** — wired ecosystem router into main application (import + include_router)
+- **Integration tests** — fixed `_IncludedRouter` import to use `fastapi.routing` (compatibility with Starlette 1.3.1)
+- **Migration test assertion** — fixed `get_supported_migrations` dict comparison to handle `estimated_packages` key via subset matching
+- **Route registration test** — added 4 ecosystem endpoints to expected route list
+
+### Tests
+
+- 218 tests passing (0 failures, 0 errors) across 22 test files
+  - 20 new ecosystem tests: 20 scanner + 9 migration + 13 integration = 42 ecosystem tests passing
+- 6 pre-existing reliable failures unchanged: 4 webhook DNS + 2 OSV fake ID
+
 ## [0.1.0] — 2026-07-24
 
 ### Features

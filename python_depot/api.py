@@ -21,6 +21,7 @@ from python_depot.database import engine, init_db
 from python_depot.routers import (
     analytics,
     dependency_health,
+    ecosystem,
     packages,
     ratings,
     reports,
@@ -171,6 +172,11 @@ def create_app() -> FastAPI:
         dependency_health.router,
         prefix="",
         tags=["dependency-health"],
+    )
+    application.include_router(
+        ecosystem.router,
+        prefix="",
+        tags=["ecosystem"],
     )
 
     # ------------------------------------------------------------------

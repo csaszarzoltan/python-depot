@@ -20,6 +20,7 @@ from sqlalchemy import text
 from python_depot.database import engine, init_db
 from python_depot.routers import (
     analytics,
+    ecosystem,
     packages,
     ratings,
     reports,
@@ -165,6 +166,9 @@ def create_app() -> FastAPI:
     )
     application.include_router(
         reports.router, prefix="/api/v1/reports", tags=["reports"]
+    )
+    application.include_router(
+        ecosystem.router, prefix="", tags=["ecosystem"]
     )
 
     # ------------------------------------------------------------------

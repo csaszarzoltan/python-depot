@@ -136,6 +136,11 @@ class TestInterfaceRouteRegistration:
             "/api/v1/dependency-health/packages",
             "/api/v1/dependency-health/alerts",
             "/api/v1/dependency-health/{package_name}/score",
+            # New ecosystem routes
+            "/api/v1/ecosystem/detect/{name}",
+            "/api/v1/ecosystem/stats",
+            "/api/v1/ecosystem/migration-guide/{name}",
+            "/api/v1/ecosystem/compatibility",
         }
         missing = expected - registered
         extra = registered - expected - {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}

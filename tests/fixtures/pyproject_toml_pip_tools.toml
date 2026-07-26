@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "example-piptools-pkg"
+version = "0.4.0"
+description = "A pip-tools managed package"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=3.0.0",
+    "sqlalchemy>=2.0.0",
+]
+
+[tool.pip-tools]
+allow-unsafe = false

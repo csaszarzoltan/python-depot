@@ -1,132 +1,196 @@
-# Dependency Health Module
+# Dependency Health & Vulnerability Scanning
 
-OSV.dev-backed dependency vulnerability scanner, alert engine, and CVSS v3.1 scoring — monitoring dependency health over time with real-time alerts.
+PythonDepot provides a comprehensive security scanning suite built on the [OSV.dev](https://osv.dev/) open-source vulnerability database. It includes CVSS v3.1 scoring, alerting with webhook delivery, and a security dashboard for monitoring across all packages.
+
+---
 
 ## Architecture
 
 ```
-python_depot/dependency_health/
-├── __init__.py               # Module exports
-├── models.py                 # VulnerabilityScan, VulnerabilityAlert (SQLAlchemy)
-├── osv_client.py             # Async OSV.dev API client
-├── scanner.py                # DependencyScanner (async OSV) + HealthScanner (safety CLI)
-├── scoring.py                # CVSS v3.1 calculator + aggregate scoring
-└── alerts.py                 # AlertEngine — new-vuln detection + webhook delivery
+                ┌─────────────────────┐
+                │   OSV.dev API        │
+                │  api.osv.dev/v1/     │
+                └──────┬──────────────┘
+                       │ HTTP (httpx)
+                ┌──────▼──────────────┐
+                │   OSVClient          │  ← query_package, query_batch, get_vuln_details
+                └──────┬──────────────┘
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+   ┌──────────┐  ┌──────────┐  ┌─────────┐
+   │Dependency│  │ Health   │  │ CVSS    │
+   │Scanner   │  │ Scanner  │  │ Scoring │
+   │(OSV.async)│  │(safetyCLI)│  │ Engine  │
+   └────┬─────┘  └────┬─────┘  └────┬────┘
+        │              │             │
+        └──────────────┼─────────────┘
+                       ▼
+                ┌──────────────┐
+                │ AlertEngine  │  ← detects new vulns, fires webhooks
+                └──────┬───────┘
+                       │
+                ┌──────▼───────┐
+                │  Dashboard   │  ← 5 REST endpoints
+                │  (overview,  │
+                │   trends,    │
+                │   packages,  │
+                │   alerts,    │
+                │   scores)    │
+                └──────────────┘
 ```
 
-## OSVClient
+## Modules
 
-Async HTTP client for the [OSV.dev](https://osv.dev) open-source vulnerability database.
+### OSVClient
+
+`python_depot.dependency_health.osv_client.OSVClient`
+
+Async HTTP client for the [OSV.dev REST API](https://osv.dev/docs/). Queries vulnerabilities by package name/version and retrieves full vulnerability details.
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `query_package(name, version=None)` | Query vulnerabilities for a PyPI package | `dict` with `vulns` list |
+| `query_batch(queries)` | Batch query multiple packages | `list[dict]` |
+| `get_vuln_details(vuln_id)` | Fetch full details for a vulnerability ID | `dict` |
+
+**Example:**
 
 ```python
 from python_depot.dependency_health.osv_client import OSVClient
 
-client = OSVClient()
+async def example():
+    client = OSVClient()
 
-# Query a specific package version
-result = await client.query_package("requests", "2.31.0")
-# → {"vulns": [{"id": "GHSA-xxxx-xxxx-xxxx", ...}]}
+    # Query a specific version
+    result = await client.query_package("requests", "2.31.0")
+    # → {"vulns": [{"id": "GHSA-xxxx", ...}]}
 
-# Batch query multiple packages at once
-results = await client.query_batch([
-    {"package": {"name": "requests", "ecosystem": "PyPI"}, "version": "2.31.0"},
-    {"package": {"name": "flask", "ecosystem": "PyPI"}, "version": "2.3.0"},
-])
-# → [{"results": [...]}, {"results": [...]}]
+    # Query all known vulnerabilities (no version)
+    result = await client.query_package("requests")
 
-# Fetch full vulnerability details
-details = await client.get_vuln_details("GHSA-xxxx-xxxx-xxxx")
-# → {"id": "GHSA-...", "summary": "...", "aliases": ["CVE-2024-..."], "severity": [...]}
+    # Batch query
+    results = await client.query_batch([
+        {"package": {"name": "requests", "ecosystem": "PyPI"}, "version": "2.31.0"},
+        {"package": {"name": "flask", "ecosystem": "PyPI"}, "version": "2.3.0"},
+    ])
+
+    # Get vulnerability details
+    details = await client.get_vuln_details("GHSA-xxxx-xxxx-xxxx")
 ```
 
-### Methods
+### DependencyScanner
+
+`python_depot.dependency_health.scanner.DependencyScanner`
+
+Async vulnerability scanner backed by OSV.dev. Replaces the legacy `HealthScanner` with non-blocking queries. Maintains backward-compatible response format.
 
 | Method | Description |
 |--------|-------------|
-| `query_package(name, version=None)` | Query OSV.dev for a single package |
-| `query_batch(queries)` | Batch query multiple packages |
-| `get_vuln_details(vuln_id)` | Full vulnerability details |
+| `scan_package(name, version=None)` | Scan a package via OSV.dev, persist result to DB |
+| `scan_batch(packages)` | Scan multiple packages sequentially |
+| `list_scans(pkg_id, name)` | List all scans for a package |
+| `latest_scan(pkg_id, name)` | Get the most recent scan result |
 
-## DependencyScanner
+**Scan result format:**
 
-Async scanner wrapping `OSVClient` with scan persistence and history.
-
-```python
-from sqlalchemy.orm import Session
-from python_depot.dependency_health.scanner import DependencyScanner
-
-scanner = DependencyScanner(db)
-
-# Scan a single package
-result = await scanner.scan_package("requests", "2.31.0")
-# → {"package": "requests", "version": "2.31.0", "status": "clean", "scan_id": 1}
-
-# Scan multiple packages
-results = await scanner.scan_batch([
-    {"name": "requests", "version": "2.31.0"},
-    {"name": "flask", "version": "2.3.0"},
-])
-
-# List scan history
-scanner.list_scans(pkg_id=1, name="requests")
-
-# Get latest scan
-scanner.latest_scan(pkg_id=1, name="requests")
+```json
+{
+  "package": "requests",
+  "version": "2.31.0",
+  "status": "clean",
+  "vulnerability_count": 0,
+  "scan_id": 1
+}
 ```
 
-### Methods
+Status values: `clean` (no vulns), `vulnerable` (found), `unknown` (scan error).
+
+### HealthScanner
+
+`python_depot.dependency_health.scanner.HealthScanner`
+
+Legacy synchronous scanner wrapping the `safety` CLI. Used by the `/api/v1/vulnerabilities/` endpoints.
 
 | Method | Description |
 |--------|-------------|
-| `scan_package(name, version=None)` | Scan a package via OSV.dev API |
-| `scan_batch(packages)` | Batch scan multiple packages |
-| `list_scans(pkg_id, name)` | List scan history for a package |
-| `latest_scan(pkg_id, name)` | Get most recent scan result |
+| `scan_package(package_name, pkg_id, version=None)` | Run safety CLI, persist result |
+| `list_scans(pkg_id, package_name)` | List all scans for a package |
+| `latest_scan(pkg_id, package_name)` | Get most recent scan |
+| `get_compatibility(package_name, latest_version=None)` | Build compatibility matrix |
 
-### Return Values
+### CVSS v3.1 Scoring Engine
 
-| `status` | Meaning |
-|----------|---------|
-| `clean` | No vulnerabilities found |
-| `vulnerable` | One or more vulnerabilities detected |
-| `unknown` | Scan failed (network error, API unavailable) |
+`python_depot.dependency_health.scoring`
 
-## AlertEngine
+Implements the CVSS v3.1 base score formula as published by [FIRST.org](https://www.first.org/cvss/v3-1/).
 
-Compares current scan results against previous scans to detect newly discovered vulnerabilities and delivers webhook notifications.
+| Function | Description |
+|----------|-------------|
+| `calculate_severity(cvss_vector)` | Parse a CVSS v3.1 vector → score (0–10) + severity label |
+| `aggregate_score(vulns)` | Aggregate multiple vulns into a composite health score |
 
-```python
-from python_depot.dependency_health.alerts import AlertEngine
+**`calculate_severity` return:**
 
-engine = AlertEngine(
-    db,
-    webhook_url="https://hooks.example.com/alerts",
-    severity_threshold="HIGH",  # Only fire webhooks for HIGH and CRITICAL
-)
-
-# Check for new vulnerabilities vs previous scan
-new_vulns = engine.check_new_vulns("requests", current_scan)
-# → [{"vuln_id": "GHSA-xxxx", "severity": "CRITICAL", ...}]
-
-# Fire webhook for an alert
-success = await engine.fire_webhook(alert)
-# → True if delivered, False if below threshold or delivery failed
-
-# List alert history
-alerts = engine.list_alerts(severity="HIGH")
-# → [{"id": 1, "vuln_id": "...", "severity": "HIGH", "webhook_status": "sent", ...}]
+```json
+{
+  "score": 9.8,
+  "severity": "CRITICAL",
+  "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+}
 ```
 
-### Severity Thresholds
+Severity labels: `NONE` (0), `LOW` (0.1–3.9), `MEDIUM` (4.0–6.9), `HIGH` (7.0–8.9), `CRITICAL` (9.0–10.0).
 
-| Threshold | Triggers webhook for |
-|-----------|---------------------|
-| `LOW` | All alerts (LOW, MEDIUM, HIGH, CRITICAL) |
-| `MEDIUM` | MEDIUM, HIGH, CRITICAL (default) |
-| `HIGH` | HIGH, CRITICAL only |
-| `CRITICAL` | CRITICAL only |
+**Valid vector format:**
 
-### Webhook Payload
+```
+CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+```
+
+Where:
+- `AV` — Attack Vector: `N` (Network), `A` (Adjacent), `L` (Local), `P` (Physical)
+- `AC` — Attack Complexity: `L` (Low), `H` (High)
+- `PR` — Privileges Required: `N` (None), `L` (Low), `H` (High)
+- `UI` — User Interaction: `N` (None), `R` (Required)
+- `S` — Scope: `U` (Unchanged), `C` (Changed)
+- `C`/`I`/`A` — Confidentiality/Integrity/Availability Impact: `N` (None), `L` (Low), `H` (High)
+
+**`aggregate_score` return:**
+
+```json
+{
+  "total": 7.5,
+  "max_severity": "HIGH",
+  "vuln_count": 3,
+  "avg_score": 6.2,
+  "breakdown": {
+    "NONE": 0, "LOW": 1, "MEDIUM": 1, "HIGH": 1, "CRITICAL": 0
+  }
+}
+```
+
+### AlertEngine
+
+`python_depot.dependency_health.alerts.AlertEngine`
+
+Detects newly discovered vulnerabilities by comparing scan results against historical data, fires webhook notifications for alerts meeting the configured severity threshold, and provides alert history.
+
+| Method | Description |
+|--------|-------------|
+| `check_new_vulns(package_name, current_scan)` | Compare current scan vs previous → list of new vulns |
+| `fire_webhook(alert, webhook_url=None)` | POST alert payload to webhook URL |
+| `list_alerts(package_name=None, severity=None)` | List alert history with optional filters |
+
+**Constructor parameters:**
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `db` | required | SQLAlchemy session |
+| `webhook_url` | `None` | URL for alert webhook delivery |
+| `severity_threshold` | `"MEDIUM"` | Minimum severity that triggers webhooks |
+
+**Webhook payload:**
 
 ```json
 {
@@ -135,155 +199,244 @@ alerts = engine.list_alerts(severity="HIGH")
   "package": "requests",
   "vuln_id": "GHSA-xxxx-xxxx-xxxx",
   "score": 9.8,
-  "timestamp": "2026-07-24T01:00:00Z",
-  "details": "{\"id\": \"GHSA-xxxx\", ...}"
+  "timestamp": "2026-07-24T00:00:00Z",
+  "details": "..."
 }
 ```
 
-## CVSS Scoring Engine
+---
 
-Implements the CVSS v3.1 base score formula as published by FIRST.org.
+## REST API
 
-```python
-from python_depot.dependency_health.scoring import calculate_severity, aggregate_score
+### Legacy Vulnerability Scanning
 
-# Parse a CVSS vector string
-result = calculate_severity("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
-# → {"score": 9.8, "severity": "CRITICAL", "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/vulnerabilities/{name}` | List vulnerability scans |
+| POST | `/api/v1/vulnerabilities/{name}/scan` | Trigger a new scan |
+| GET | `/api/v1/vulnerabilities/{name}/latest` | Get most recent scan result |
 
-# Aggregate multiple vulnerabilities into a composite health score
-aggregate_score([
-    {"severity": "CRITICAL", "score": 9.8},
-    {"severity": "HIGH", "score": 7.5},
-])
-# → {"total": 11.3, "max_severity": "CRITICAL", "vuln_count": 2, ...}
-```
+### Security Dashboard
 
-### `calculate_severity(vector)`
+Five endpoints exposing aggregate security data across all packages:
 
-Parses a CVSS v3.1 vector string and returns:
-
-| Field | Description |
-|-------|-------------|
-| `score` | Base score 0.0–10.0 |
-| `severity` | NONE, LOW, MEDIUM, HIGH, or CRITICAL |
-| `vector` | Original vector string |
-
-Raises `ValueError` for malformed vectors.
-
-### `aggregate_score(vulns)`
-
-Aggregates multiple vulnerability scores into a package health score:
-
-| Field | Description |
-|-------|-------------|
-| `total` | Composite score 0.0–10.0 (higher = worse) |
-| `max_severity` | Highest severity found |
-| `vuln_count` | Number of vulnerabilities evaluated |
-| `avg_score` | Average CVSS base score |
-| `breakdown` | Per-severity counts |
-
-Raises `ValueError` for empty input or invalid severity labels.
-
-## Security Dashboard API
-
-Added under the `/api/v1/dependency-health/` prefix — five endpoints for monitoring dependency health over time.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/dependency-health/overview` | Aggregate vulnerability stats across all packages |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/dependency-health/overview` | Aggregate vulnerability statistics |
 | GET | `/api/v1/dependency-health/trends` | Vulnerability trend data over time |
 | GET | `/api/v1/dependency-health/packages` | Packages sorted by health score |
 | GET | `/api/v1/dependency-health/alerts` | Recent vulnerability alerts |
 | GET | `/api/v1/dependency-health/{name}/score` | Composite security score for a package |
 
-### Overview Response
+#### GET `/api/v1/dependency-health/overview`
+
+Aggregate vulnerability stats across all scanned packages.
+
+**Response:**
 
 ```json
 {
-  "total_packages": 5,
-  "total_scans": 42,
-  "vuln_counts": {"vulnerable": 3, "clean": 37, "unknown": 2},
-  "scan_coverage": 88.1,
-  "last_scan": "2026-07-24T01:00:00"
+  "total_packages": 42,
+  "total_scans": 156,
+  "vuln_counts": {
+    "vulnerable": 3,
+    "clean": 148,
+    "unknown": 5
+  },
+  "severity_breakdown": {},
+  "scan_coverage": 94.9,
+  "last_scan": "2026-07-24T12:00:00"
 }
 ```
 
-### Package Score Response
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_packages` | int | Unique packages with at least one scan |
+| `total_scans` | int | Total scan records across all packages |
+| `vuln_counts` | object | Count by scan status (vulnerable/clean/unknown) |
+| `scan_coverage` | float | Percentage of scans reporting clean |
+| `last_scan` | str | ISO 8601 timestamp of the most recent scan |
+
+#### GET `/api/v1/dependency-health/trends`
+
+Time-series vulnerability data. Each entry shows cumulative scan counts at a point in time.
+
+**Response:**
+
+```json
+{
+  "trends": [
+    {
+      "timestamp": "2026-07-01T10:00:00",
+      "vulnerable": 1,
+      "clean": 10,
+      "unknown": 0,
+      "total": 11
+    }
+  ]
+}
+```
+
+#### GET `/api/v1/dependency-health/packages`
+
+List packages sorted by health score.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sort_by` | string | `"score"` | Sort field: `score`, `name`, `vuln_count` |
+| `limit` | int | `20` | Max results |
+| `offset` | int | `0` | Pagination offset |
+
+**Response:**
+
+```json
+{
+  "packages": [
+    {
+      "package_id": 1,
+      "vuln_count": 0,
+      "status": "clean",
+      "last_scan": "2026-07-24T12:00:00"
+    }
+  ],
+  "total": 42,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+#### GET `/api/v1/dependency-health/alerts`
+
+List recent vulnerability alerts.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `severity` | string | — | Filter by severity: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
+| `limit` | int | `50` | Max results |
+| `offset` | int | `0` | Pagination offset |
+
+**Response:**
+
+```json
+{
+  "alerts": [
+    {
+      "id": 1,
+      "package_name": "requests",
+      "vuln_id": "GHSA-xxxx-xxxx-xxxx",
+      "severity": "HIGH",
+      "score": 7.5,
+      "webhook_status": "sent",
+      "created_at": "2026-07-24T12:00:00"
+    }
+  ],
+  "total": 5,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### GET `/api/v1/dependency-health/{name}/score`
+
+Composite 0–100 security score for a package (100 = no known vulnerabilities).
+
+**Response:**
 
 ```json
 {
   "package": "requests",
-  "score": 92.5,
-  "breakdown": {"base_score": 92.5, "vuln_penalty": 7.5},
-  "vuln_count": 1,
-  "max_severity": "MEDIUM",
-  "score_label": "EXCELLENT"
+  "score": 85.0,
+  "breakdown": {
+    "base_score": 85.0,
+    "vuln_penalty": 15.0
+  },
+  "vuln_count": 2,
+  "max_severity": "HIGH",
+  "score_label": "GOOD"
 }
 ```
 
-| Score Label | Range |
+| Score Range | Label |
 |-------------|-------|
-| EXCELLENT | 90–100 |
-| GOOD | 70–89 |
-| FAIR | 50–69 |
-| POOR | 30–49 |
-| CRITICAL | 0–29 |
+| 90–100 | `EXCELLENT` |
+| 70–89 | `GOOD` |
+| 50–69 | `FAIR` |
+| 30–49 | `POOR` |
+| 0–29 | `CRITICAL` |
 
-## Database Models
+---
 
-### `VulnerabilityScan`
+## Shell Usage
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | Integer (PK) | Auto-increment ID |
-| `package_id` | Integer (FK) | References `packages.id` |
-| `version` | String | Scanned version |
-| `scanner` | String | `safety` or `osv` |
-| `status` | String | `clean`, `vulnerable`, or `unknown` |
-| `vuln_count` | Integer | Number of vulnerabilities |
-| `details` | Text | JSON vulnerability list |
-| `scanned_at` | DateTime | Scan timestamp |
+```bash
+# Legacy vulnerability endpoints
+curl http://localhost:8000/api/v1/vulnerabilities/requests
+curl -X POST http://localhost:8000/api/v1/vulnerabilities/requests/scan
+curl http://localhost:8000/api/v1/vulnerabilities/requests/latest
 
-### `VulnerabilityAlert`
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | Integer (PK) | Auto-increment ID |
-| `package_id` | Integer (FK) | References `packages.id` |
-| `vuln_id` | String | OSV vulnerability ID |
-| `severity` | String | CRITICAL, HIGH, MEDIUM, LOW |
-| `score` | Float | CVSS score |
-| `details` | Text | Full vulnerability JSON |
-| `webhook_status` | String | `pending`, `sent`, `failed` |
-| `created_at` | DateTime | Alert timestamp |
-
-## Backward Compatibility
-
-The legacy `HealthScanner` class remains available for projects that depend on the `safety` CLI. It shares the same `VulnerabilityScan` model and response format as `DependencyScanner`.
-
-```
-HealthScanner → safety CLI → VulnerabilityScan model
-DependencyScanner → OSV.dev API → VulnerabilityScan model
+# Security dashboard
+curl http://localhost:8000/api/v1/dependency-health/overview
+curl http://localhost:8000/api/v1/dependency-health/trends
+curl http://localhost:8000/api/v1/dependency-health/packages
+curl http://localhost:8000/api/v1/dependency-health/alerts?severity=HIGH
+curl http://localhost:8000/api/v1/dependency-health/requests/score
 ```
 
-Both can coexist — call `DependencyScanner` for OSV.dev queries and `HealthScanner` for safety CLI fallback.
+---
 
-## Error Handling
+## Configuration
 
-| Scenario | Behavior |
-|----------|----------|
-| OSV.dev API returns 404 | `get_vuln_details` raises `httpx.HTTPStatusError` |
-| OSV.dev network timeout | `scan_package` returns `status: "unknown"` |
-| safety CLI not installed | `scan_package` returns `status: "unknown"`, details: `scanner_unavailable` |
-| Invalid CVSS vector | `calculate_severity` raises `ValueError` with parse error |
-| Empty vuln list for aggregate | `aggregate_score` raises `ValueError` |
+### Alert Webhook
+
+Set the webhook URL when initialising the alert engine:
+
+```python
+from python_depot.dependency_health.alerts import AlertEngine
+from python_depot.database import next_session
+
+async with next_session() as db:
+    engine = AlertEngine(
+        db=db,
+        webhook_url="https://hooks.example.com/alerts",
+        severity_threshold="HIGH",  # only HIGH and CRITICAL trigger webhooks
+    )
+```
+
+### Severity Thresholds
+
+| Threshold | Webhook triggers on |
+|-----------|---------------------|
+| `LOW` | LOW, MEDIUM, HIGH, CRITICAL |
+| `MEDIUM` (default) | MEDIUM, HIGH, CRITICAL |
+| `HIGH` | HIGH, CRITICAL |
+| `CRITICAL` | CRITICAL only |
+
+---
 
 ## Dependencies
 
-- `httpx` — async HTTP client for OSV.dev API
-- `sqlalchemy` — database ORM for scan persistence
-- `safety` (optional) — CLI-based vulnerability scanner fallback
+| Feature | Dependency |
+|---------|------------|
+| OSV.dev client (`OSVClient`) | `httpx` (included) |
+| Async scanner (`DependencyScanner`) | `httpx` (included) |
+| CVSS scoring | Pure Python (no deps) |
+| Alert engine | `httpx` (included) |
+| Safety CLI scanner (`HealthScanner`) | `safety` CLI (`pip install safety`) |
+
+---
+
+## Error Handling
+
+| Status Code | Scenario |
+|-------------|----------|
+| `200` | Request successful |
+| `404` | Package not found in scan history |
+| `422` | Invalid CVSS vector or empty vuln list |
+| `503` | OSV.dev API unreachable (scanner returns `unknown` status) |
 
 ---
 
