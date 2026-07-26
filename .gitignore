@@ -10,3 +10,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Scratch route-inspection helpers (not proper tests)
+tests/_check_routes*.py

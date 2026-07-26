@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from python_depot.database import get_db
-from python_depot.ecosystem.migration import MigrationGuideGenerator, SUPPORTED_MIGRATIONS
+from python_depot.ecosystem.migration import (
+    SUPPORTED_MIGRATIONS,
+    MigrationGuideGenerator,
+)
 from python_depot.ecosystem.scanner import EcosystemScanner
 from python_depot.ecosystem.stats import EcosystemStatsService
 

@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.routing import APIRoute
-from fastapi.routing import _IncludedRouter
+from fastapi.routing import APIRoute, _IncludedRouter
 
 from src.app import app
 
