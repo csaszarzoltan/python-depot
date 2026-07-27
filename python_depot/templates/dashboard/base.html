@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Vulnerability Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <button class="hamburger" id="hamburger-btn">&#9776; Menu</button>
+    <nav class="sidebar">
+        <ul>
+            <li><a href="/dashboard"><i class="fas fa-chart-pie"></i> Overview</a></li>
+            <li><a href="/dashboard/packages"><i class="fas fa-boxes"></i> Packages</a></li>
+            <li><a href="/dashboard/alerts"><i class="fas fa-exclamation-triangle"></i> Alerts</a></li>
+        </ul>
+    </nav>
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

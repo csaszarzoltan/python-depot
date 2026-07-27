@@ -1,0 +1,134 @@
+/* Vulnerability Dashboard — Mobile-first responsive CSS */
+
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background: #f5f7fa;
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 1rem;
+    display: none; /* hidden on mobile, hamburger instead */
+    width: 100%;
+}
+.sidebar ul { list-style: none; }
+.sidebar li { margin: 0.5rem 0; }
+.sidebar a { color: #a0aec0; text-decoration: none; display: block; padding: 0.5rem; border-radius: 4px; }
+.sidebar a:hover { color: #fff; background: #2d2d44; }
+
+/* ===== Main content ===== */
+.content { padding: 1rem; }
+
+/* ===== Stats grid ===== */
+.stats-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; margin: 1rem 0; }
+.stat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    text-align: center;
+}
+.stat-card h3 { font-size: 0.875rem; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 2rem; font-weight: 700; color: #2d3748; display: block; margin-top: 0.25rem; }
+
+/* ===== Chart container ===== */
+.chart-container {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* ===== Tables ===== */
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e2e8f0; }
+th { background: #f7fafc; color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+tr:hover { background: #f7fafc; }
+
+/* ===== Status badges ===== */
+.status-badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+.status-clean { background: #c6f6d5; color: #22543d; }
+.status-vulnerable { background: #fed7d7; color: #9b2c2c; }
+.status-unknown { background: #fefcbf; color: #744210; }
+
+/* ===== Severity badges ===== */
+.severity-CRITICAL { background: #e53e3e; color: #fff; }
+.severity-HIGH { background: #ed8936; color: #fff; }
+.severity-MEDIUM { background: #ecc94b; color: #744210; }
+.severity-LOW { background: #4299e1; color: #fff; }
+
+/* ===== Search bar ===== */
+.search-bar { margin: 1rem 0; }
+.search-bar input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 1rem;
+}
+.search-bar input:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.2); }
+
+/* ===== Pagination ===== */
+.pagination { display: flex; justify-content: center; gap: 0.5rem; margin: 1rem 0; }
+.pagination a, .pagination span {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    text-decoration: none;
+    color: #4a5568;
+}
+.pagination a:hover { background: #edf2f7; }
+
+/* ===== Severity filter ===== */
+.filter-bar { margin: 1rem 0; }
+.filter-bar select {
+    padding: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+/* ===== Package detail score ===== */
+.score-gauge { text-align: center; padding: 2rem; }
+.score-value { font-size: 3rem; font-weight: 700; }
+.score-label { font-size: 1.25rem; font-weight: 600; }
+.score-breakdown { display: grid; grid-template-columns: 1fr; gap: 1rem; margin: 1rem 0; }
+.back-link { display: inline-block; margin: 1rem 0; color: #4299e1; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+
+/* ===== Hamburger ===== */
+.hamburger {
+    display: block;
+    background: #1a1a2e;
+    color: #fff;
+    border: none;
+    padding: 0.75rem 1rem;
+    font-size: 1.25rem;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+}
+
+/* ===== Tablet (768px+) ===== */
+@media (min-width: 768px) {
+    body { display: flex; }
+    .sidebar { display: block; width: 250px; min-height: 100vh; }
+    .hamburger { display: none; }
+    .content { flex: 1; padding: 2rem; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .score-breakdown { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ===== Desktop (1024px+) ===== */
+@media (min-width: 1024px) {
+    .stats-grid { grid-template-columns: repeat(3, 1fr); }
+    .score-breakdown { grid-template-columns: repeat(3, 1fr); }
+}

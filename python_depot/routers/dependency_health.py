@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from python_depot.database import get_db
 from python_depot.dependency_health.alerts import AlertEngine
-from python_depot.dependency_health.models import VulnerabilityAlert, VulnerabilityScan
+from python_depot.dependency_health.models import VulnerabilityScan
 from python_depot.dependency_health.scoring import aggregate_score
 
 logger = logging.getLogger(__name__)
@@ -44,13 +44,6 @@ async def get_overview(db: Session = Depends(get_db)) -> dict[str, Any]:
     unknown_scans = (
         db.query(VulnerabilityScan)
         .filter(VulnerabilityScan.status == "unknown")
-        .count()
-    )
-
-    # Unique packages scanned
-    distinct_packages = (
-        db.query(VulnerabilityScan.package_id)
-        .distinct()
         .count()
     )
 

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Alerts — Vulnerability Dashboard{% endblock %}
+{% block content %}
+<h1>Vulnerability Alerts</h1>
+<div class="filter-bar">
+    <label for="severity-filter">Severity: </label>
+    <select id="severity-filter">
+        <option value="">All</option>
+        <option value="CRITICAL" {% if current_severity == 'CRITICAL' %}selected{% endif %}>CRITICAL</option>
+        <option value="HIGH" {% if current_severity == 'HIGH' %}selected{% endif %}>HIGH</option>
+        <option value="MEDIUM" {% if current_severity == 'MEDIUM' %}selected{% endif %}>MEDIUM</option>
+        <option value="LOW" {% if current_severity == 'LOW' %}selected{% endif %}>LOW</option>
+    </select>
+</div>
+<table>
+    <thead>
+        <tr>
+            <th>Severity</th>
+            <th>Package</th>
+            <th>Vuln ID</th>
+            <th>Timestamp</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for alert in alerts %}
+        <tr>
+            <td><span class="status-badge severity-{{ alert.severity }}">{{ alert.severity }}</span></td>
+            <td><a href="/dashboard/packages/{{ alert.package_name }}">{{ alert.package_name }}</a></td>
+            <td>{{ alert.vuln_id }}</td>
+            <td>{{ alert.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% if total > limit %}
+<div class="pagination">
+    {% if offset > 0 %}
+    <a href="/dashboard/alerts?limit={{ limit }}&offset={{ offset - limit }}{% if current_severity %}&severity={{ current_severity }}{% endif %}">Previous</a>
+    {% endif %}
+    <span>Page {{ (offset // limit) + 1 }} of {{ (total // limit) + (1 if total % limit else 0) }}</span>
+    {% if offset + limit < total %}
+    <a href="/dashboard/alerts?limit={{ limit }}&offset={{ offset + limit }}{% if current_severity %}&severity={{ current_severity }}{% endif %}">Next</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

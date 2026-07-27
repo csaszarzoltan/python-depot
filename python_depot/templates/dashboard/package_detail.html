@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ package }} — Package Detail{% endblock %}
+{% block content %}
+<a href="/dashboard/packages" class="back-link">&larr; Back to Packages</a>
+<h1>{{ package }}</h1>
+{% if error %}
+<div class="error-message">{{ error }}</div>
+{% else %}
+<div class="score-gauge" style="background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <div class="score-value" style="color: {% if score >= 90 %}#38a169{% elif score >= 70 %}#dd6b20{% elif score >= 50 %}#d69e2e{% elif score >= 30 %}#c05621{% else %}#e53e3e{% endif %};">{{ score }}</div>
+    <div class="score-label" style="color: {% if score_label == 'EXCELLENT' %}#38a169{% elif score_label == 'GOOD' %}#dd6b20{% elif score_label == 'FAIR' %}#d69e2e{% elif score_label == 'POOR' %}#c05621{% else %}#e53e3e{% endif %};">{{ score_label }}</div>
+</div>
+<div class="score-breakdown">
+    <div class="stat-card">
+        <h3>Base Score</h3>
+        <span class="stat-value">{{ breakdown.base_score }}</span>
+    </div>
+    <div class="stat-card">
+        <h3>Vuln Penalty</h3>
+        <span class="stat-value">{{ breakdown.vuln_penalty }}</span>
+    </div>
+    <div class="stat-card">
+        <h3>Vulnerabilities</h3>
+        <span class="stat-value">{{ vuln_count }}</span>
+    </div>
+    <div class="stat-card">
+        <h3>Max Severity</h3>
+        <span class="stat-value severity-{{ max_severity }}">{{ max_severity }}</span>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

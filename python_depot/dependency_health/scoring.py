@@ -5,7 +5,6 @@ based on vulnerability data from OSV.dev responses.
 """
 from __future__ import annotations
 
-import math
 import re
 from typing import Any
 

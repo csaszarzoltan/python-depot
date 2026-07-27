@@ -5,6 +5,27 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-07-26
+
+### Features
+
+- **Vulnerability Dashboard UI** — Interactive Jinja2 dashboard with Chart.js:
+  - Overview page with severity donut chart, trend line chart, vulnerability summary cards
+  - Package health table with search, sort, pagination
+  - Package detail view with 0-100 health score visualization
+  - Alerts listing with severity filtering
+  - Responsive design (mobile + desktop)
+  - Static file serving configured in FastAPI
+
+### Testing
+
+- 60 new dashboard UI tests (31 interface + 29 behavioral) all passing
+- 218 existing backend tests still passing (284 total, 6 known external-dependent failures unchanged)
+
+### Known Issues
+
+- 6 pre-existing external-dependent test failures: 4 webhook DNS-dependent tests (webhook.site unreachable), 2 OSV client tests (fake vulnerability ID GHSA-xxxx-xxxx-xxxx returns 404 from real API)
+
 ## [0.2.0] — 2026-07-26
 
 ### Features

@@ -11,15 +11,18 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from python_depot.database import engine, init_db
 from python_depot.routers import (
     analytics,
+    dashboard_pages,
     dependency_health,
     ecosystem,
     packages,
@@ -211,6 +214,16 @@ def create_app() -> FastAPI:
             "db_status": db_status,
             "checks": checks,
         }
+
+    # ------------------------------------------------------------------
+    # Static files + Dashboard UI pages
+    # ------------------------------------------------------------------
+    application.mount(
+        "/static",
+        StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+        name="static",
+    )
+    application.include_router(dashboard_pages.router, prefix="", tags=["dashboard"])
 
     # ------------------------------------------------------------------
     # Exception handler — translate common errors to JSON

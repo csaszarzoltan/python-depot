@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Packages — Vulnerability Dashboard{% endblock %}
+{% block content %}
+<h1>Package Health</h1>
+<div class="search-bar">
+    <input type="text" id="package-search" placeholder="Search packages..." />
+</div>
+<table class="packages-table">
+    <thead>
+        <tr>
+            <th>Package</th>
+            <th>Vulnerabilities</th>
+            <th>Status</th>
+            <th>Last Scan</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for pkg in packages %}
+        <tr>
+            <td><a href="/dashboard/packages/{{ pkg.package_id }}">{{ pkg.package_id }}</a></td>
+            <td>{{ pkg.vuln_count }}</td>
+            <td><span class="status-badge status-{{ pkg.status }}">{{ pkg.status }}</span></td>
+            <td>{{ pkg.last_scan }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% if total > limit %}
+<div class="pagination">
+    {% if offset > 0 %}
+    <a href="/dashboard/packages?limit={{ limit }}&offset={{ offset - limit }}">Previous</a>
+    {% endif %}
+    <span>Page {{ (offset // limit) + 1 }} of {{ (total // limit) + (1 if total % limit else 0) }}</span>
+    {% if offset + limit < total %}
+    <a href="/dashboard/packages?limit={{ limit }}&offset={{ offset + limit }}">Next</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

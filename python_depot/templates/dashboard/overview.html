@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Overview — Vulnerability Dashboard{% endblock %}
+{% block content %}
+<h1>Dependency Health Overview</h1>
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Total Packages</h3>
+        <span class="stat-value" id="total-packages">{{ total_packages }}</span>
+    </div>
+    <div class="stat-card">
+        <h3>Scan Coverage</h3>
+        <span class="stat-value">{{ scan_coverage }}%</span>
+    </div>
+    <div class="stat-card">
+        <h3>Last Scan</h3>
+        <span class="stat-value">{{ last_scan }}</span>
+    </div>
+</div>
+<div class="chart-container">
+    <h3>Severity Breakdown</h3>
+    <canvas id="severityChart"></canvas>
+</div>
+<script>
+const severityData = {{ severity_json|safe }};
+const ctx = document.getElementById('severityChart').getContext('2d');
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: Object.keys(severityData),
+        datasets: [{
+            data: Object.values(severityData),
+            backgroundColor: ['#e53e3e', '#ed8936', '#ecc94b', '#4299e1'],
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: true }
+});
+</script>
+{% endblock %}
