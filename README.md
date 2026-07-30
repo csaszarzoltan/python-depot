@@ -311,3 +311,38 @@ MIT
 ---
 
 *PythonDepot — Curated Python package discovery platform*
+
+## Product decision and governance capabilities
+
+Version 0.4 adds six independently usable application services under `python_depot.product`:
+
+- **Decision workspaces** freeze comparable package evidence and produce an auditable decision digest.
+- **Release provenance** distinguishes verified attestations, missing evidence, invalid artifacts, and trusted-publisher identity changes.
+- **Portfolio watchlists** persist dependency snapshots and create alerts only for changed package risk.
+- **Migration planning** identifies direct and transitive packages that block a target Python version.
+- **Trusted reviews** require usage evidence and prevent package owners or review authors from moderating their own reviews.
+- **SBOM policy gates** evaluate denied metadata, enforce waiver expiration, and isolate private catalog entries by organization.
+
+The main FastAPI application exposes these contracts below `/api/v1/product`. Product persistence defaults to `/tmp/python_depot_product.db` and can be changed with `PYTHONDEPOT_PRODUCT_DB`.
+
+### Product API examples
+
+```bash
+curl -X POST http://localhost:8000/api/v1/product/decision-workspaces \
+  -H "Content-Type: application/json" \
+  -d '{"purpose":"web framework","candidates":["fastapi","flask"]}'
+
+curl -X POST http://localhost:8000/api/v1/product/provenance/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{"attestation_valid":true,"publisher":"github:org/project","expected_publisher":"github:org/project","artifact_digest_matches":true}'
+```
+
+### Isolated capability tests
+
+The repository-wide suite still requires the dependencies declared in `pyproject.toml`. The standard-library product services can be tested in isolation with:
+
+```bash
+cp tests/test_product_capabilities.py /tmp/test_product_capabilities.py
+cd /tmp
+PYTHONPATH=/path/to/python-depot python -m pytest -q test_product_capabilities.py
+```

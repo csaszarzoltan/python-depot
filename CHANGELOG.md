@@ -101,3 +101,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quick-start examples and API usage documentation
 - README with project overview and deployment instructions
 - CI configuration: Python 3.12/3.13 matrix, ruff + pytest on push
+
+## [0.4.0] — 2026-07-30
+
+### Product capabilities
+
+- Added auditable package decision workspaces with immutable evidence digests.
+- Added release provenance classification for valid, missing, invalid, and changed publisher identities.
+- Added dependency portfolio snapshots with risk-delta alert deduplication.
+- Added project-wide Python compatibility planning with transitive blocker paths.
+- Added evidence-backed reviews and conflict-safe, append-only moderation events.
+- Added SBOM license policy evaluation, expiring waivers, and tenant-scoped private catalog filtering.
+- Added `/api/v1/product` FastAPI contracts for the new product services.
+
+### Security and quality
+
+- Added organization-header isolation for policy evaluation endpoints.
+- Added deterministic standard-library tests for all six capabilities and their negative cases.
+- Preserved existing catalog, ratings, vulnerability, ecosystem, and dashboard contracts.
