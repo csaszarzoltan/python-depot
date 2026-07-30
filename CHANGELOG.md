@@ -119,3 +119,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added organization-header isolation for policy evaluation endpoints.
 - Added deterministic standard-library tests for all six capabilities and their negative cases.
 - Preserved existing catalog, ratings, vulnerability, ecosystem, and dashboard contracts.
+
+## [0.5.0] — 2026-07-30
+
+### User interfaces
+
+- Added six responsive, server-rendered product workspaces for package comparison, provenance explanation, portfolio risk triage, Python upgrade planning, trusted reviews, and SBOM policy management.
+- Added accessible navigation, skip links, live status regions, keyboard-friendly forms, empty states, recovery guidance, mobile layouts, evidence freshness, and permission-aware actions.
+- Added persistent UI workflow state for risk inbox items and evidence-backed reviews without coupling the view layer to SQLAlchemy.
+- Added FastAPI page routes under `/workspace/*` while preserving all existing API contracts.
+
+### Quality
+
+- Added isolated UI behavior tests covering trust semantics, persistent acknowledgement, transitive blocker explanation, moderation conflicts, waiver expiration, accessibility landmarks, and recovery actions.
+- Kept the product UI renderer independently testable with only the Python standard library and existing product-domain modules.

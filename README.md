@@ -346,3 +346,28 @@ cp tests/test_product_capabilities.py /tmp/test_product_capabilities.py
 cd /tmp
 PYTHONPATH=/path/to/python-depot python -m pytest -q test_product_capabilities.py
 ```
+
+## Product workspaces in 0.5
+
+PythonDepot now provides user-facing workspaces in addition to the versioned APIs:
+
+- `/workspace/decisions` for guided package comparison and decision records.
+- `/workspace/trust` for origin, attestation, digest, and publisher-change explanations.
+- `/workspace/risk-inbox` for portfolio change triage and acknowledgement.
+- `/workspace/upgrade` for Python-version compatibility planning and blocker paths.
+- `/workspace/reviews` for evidence-backed reviews and conflict-safe moderation.
+- `/workspace/policy` for SBOM policy evaluation, dry runs, waiver review, and private catalog administration.
+
+The workspaces are responsive and server-rendered. Every page includes keyboard navigation, visible recovery guidance, empty and partial states, evidence freshness, and an automation path through the existing JSON APIs. Runtime UI state uses `PYTHONDEPOT_PRODUCT_DB`, defaulting to `/tmp/python_depot_product.db`.
+
+### Testing product workspaces
+
+The isolated UI suite does not require SQLAlchemy:
+
+```bash
+cp tests/test_product_ui.py /tmp/test_product_ui.py
+cd /tmp
+PYTHONPATH=/path/to/python-depot python -m pytest -q test_product_ui.py
+```
+
+The complete repository suite still requires the dependencies declared in `pyproject.toml`.

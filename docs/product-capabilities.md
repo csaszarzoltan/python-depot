@@ -19,3 +19,16 @@ Organization policy evaluation requires a matching `X-Organization-ID`. Review a
 ## Operational notes
 
 Set `PYTHONDEPOT_PRODUCT_DB` to a writable SQLite file. The current MVP is single-process friendly; multi-instance deployment should move repositories to the main SQLAlchemy database and add transactional outbox delivery for alerts.
+
+## Version 0.5 delivery layer
+
+`python_depot.product_ui` converts the product-domain services into deterministic, accessible HTML view models. `python_depot.routers.product_pages` exposes the workspaces through FastAPI without moving domain decisions into page handlers.
+
+The interface follows these rules:
+
+- one primary task per screen;
+- explicit empty, partial, success, failure, and recovery states;
+- origin evidence is never presented as proof of package safety;
+- tenant or conflict-of-interest restrictions remove unsafe actions;
+- desktop uses persistent navigation and multi-column details, while narrow viewports use a single-column flow and sticky primary action;
+- user-controlled values are escaped before HTML output.

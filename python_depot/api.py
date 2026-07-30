@@ -27,6 +27,7 @@ from python_depot.routers import (
     ecosystem,
     packages,
     product,
+    product_pages,
     ratings,
     reports,
     reviews,
@@ -145,7 +146,7 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="PythonDepot",
         description="Curated Python package discovery platform",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
     )
 
@@ -175,6 +176,7 @@ def create_app() -> FastAPI:
     application.include_router(
         product.router, prefix="/api/v1/product", tags=["product"]
     )
+    application.include_router(product_pages.router, prefix="", tags=["product-ui"])
     application.include_router(
         dependency_health.router,
         prefix="",
@@ -192,7 +194,7 @@ def create_app() -> FastAPI:
     @application.get("/")
     async def root():
         """API root — basic service info."""
-        return {"message": "PythonDepot API", "version": "0.4.0"}
+        return {"message": "PythonDepot API", "version": "0.5.0"}
 
     # ------------------------------------------------------------------
     # Shared pattern: health-check-endpoint
@@ -212,7 +214,7 @@ def create_app() -> FastAPI:
 
         return {
             "status": overall,
-            "version": "0.4.0",
+            "version": "0.5.0",
             "timestamp": datetime.now(UTC).isoformat(),
             "uptime": _format_uptime(uptime_seconds),
             "db_status": db_status,
