@@ -1,6 +1,6 @@
 [project]
 name = "python-depot"
-version = "0.5.0"
+version = "0.6.0"
 description = "Curated Python package discovery platform"
 readme = "README.md"
 license = { text = "MIT" }
