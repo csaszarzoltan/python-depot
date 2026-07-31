@@ -23,6 +23,7 @@ uvicorn python_depot.api:app --reload
 | 4 | `search_and_trends.py` | Package search with pagination, time-series trends |
 | 5 | `reviews_and_ratings.py` | Ratings, reviews, and rating summaries |
 | 6 | `dependency_scanning.py` | OSV scanning, dashboard, alerts, health scores |
+| 7 | `uv_migration.py` | uv migration: compatibility, lock conversion, CI/CD, reports |
 
 ## Usage
 

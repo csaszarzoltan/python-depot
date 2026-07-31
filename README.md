@@ -2,7 +2,7 @@
 
 Curated Python package discovery platform — search, rate, review, and monitor Python packages through a single FastAPI service.
 
-[![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-340%20passed-brightgreen)](./tests)
 [![Security](https://img.shields.io/badge/security-dashboard-blue)](./docs/dependency-health.md)
 [![Ruff](https://img.shields.io/badge/ruff-passing-brightgreen)](./pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](./pyproject.toml)
@@ -26,6 +26,7 @@ Curated Python package discovery platform — search, rate, review, and monitor 
 || 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
 || 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
 | 📋 **Reports** | Monthly Best-of reports (JSON + HTML) | `GET/POST /api/v1/reports/` |
+| 🔄 **uv Migration** | Automated pip/poetry/pipenv → uv migration | `python-depot-migrate --scan ./project` |
 | ❤️ **Health** | Detailed health check with DB status | `GET /health` |
 | 🛡️ **SSRF Protection** | URL validation on all external calls | Built-in `validate_url()` |
 
@@ -213,7 +214,7 @@ pip install -e ".[dev]"
 ### Run Tests
 
 ```bash
-# All tests (176 behavioral + interface tests)
+# All tests (340 behavioral + interface tests)
 pytest -v
 
 # Specific module
@@ -277,7 +278,16 @@ python-depot/
 │   │   └── reports.py
 │   ├── services/              # Service layer classes
 │   └── templates/             # Report HTML templates
-├── tests/                     # Test suite (176+ tests)
+├── src/python_depot_migrate/  # uv Migration Assistant CLI
+│   ├── __init__.py
+│   ├── __main__.py            # python -m python_depot_migrate
+│   ├── cli.py                 # CLI entry point + batch mode
+│   ├── scanner.py             # Dependency analysis engine
+│   ├── compatibility.py       # uv compatibility checker
+│   ├── lock_converter.py      # Lock file → uv.lock converter
+│   ├── ci_cd.py               # CI/CD config migrator
+│   └── report.py              # Markdown + JSON report generator
+├── tests/                     # Test suite (340+ tests)
 ├── docs/                      # Per-feature documentation
 ├── examples/                  # Runnable Python example scripts
 ├── Dockerfile                 # Railway/Docker deployment
@@ -295,6 +305,7 @@ PythonDepot uses a modular architecture with three extracted domain modules:
 - **dependency_health** — `DependencyScanner` class with async OSV.dev API for vulnerability scanning, `AlertEngine` for new-vuln detection and webhook delivery, `calculate_severity()` for CVSS v3.1 scoring, and `VulnerabilityScan`/`VulnerabilityAlert` models. Legacy `HealthScanner` wrapper for `safety` CLI remains for backward compatibility.
 - **pydepot** — `AnalyticsService` (PyPI stats, event tracking), `CatalogService` (PyPI API client), `ReportService` (Jinja2-based monthly reports)
 - **ratings** — `RatingService` class with CRUD for ratings and reviews, moderation queue
+- **python_depot_migrate** — uv Migration Assistant CLI. Automated pip/poetry/pipenv → uv migration with dependency analysis, compatibility checking, lock file conversion, CI/CD config updates, and markdown/JSON migration reports. Standalone `python-depot-migrate` command. See [docs/uv-migration.md](docs/uv-migration.md) for full guide.
 
 The app factory in `python_depot/api.py` registers all routers and applies four shared patterns:
 1. **Health check endpoint** — detailed `/health` with DB status, version, uptime
