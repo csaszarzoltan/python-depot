@@ -181,15 +181,25 @@ class TestAlertBehavioral:
     @pytest.mark.anyio
     async def test_fire_webhook_returns_true_on_success(self):
         """fire_webhook returns True for 2xx response."""
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
         from python_depot.dependency_health.alerts import AlertEngine
 
-        engine = AlertEngine(
-            db=None,
-            webhook_url="https://hooks.example.com/alerts",
-        )  # type: ignore[arg-type]
-        alert = {"package": "flask", "vuln_id": "GHSA-yyyy", "severity": "MEDIUM"}
-        result = await engine.fire_webhook(alert)
-        assert result is True
+        mock_response = httpx.Response(
+            200, json={"status": "ok"},
+            request=httpx.Request("POST", "https://hooks.example.com/alerts"),
+        )
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", new=mock_post):
+            engine = AlertEngine(
+                db=None,
+                webhook_url="https://hooks.example.com/alerts",
+            )  # type: ignore[arg-type]
+            alert = {"package": "flask", "vuln_id": "GHSA-yyyy", "severity": "MEDIUM"}
+            result = await engine.fire_webhook(alert)
+            assert result is True
 
     def test_list_alerts_returns_list(self):
         """list_alerts returns a list of alert dicts."""

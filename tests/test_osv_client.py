@@ -201,7 +201,7 @@ class TestOSVClientBehavioral:
         from python_depot.dependency_health.osv_client import OSVClient
 
         client = OSVClient()
-        result = await client.get_vuln_details("GHSA-xxxx-xxxx-xxxx")
+        result = await client.get_vuln_details("GHSA-ww39-953v-wcq6")
         assert isinstance(result, dict)
         assert "id" in result or "vuln_id" in result
 
@@ -211,6 +211,6 @@ class TestOSVClientBehavioral:
         from python_depot.dependency_health.osv_client import OSVClient
 
         client = OSVClient()
-        result = await client.get_vuln_details("GHSA-xxxx-xxxx-xxxx")
+        result = await client.get_vuln_details("GHSA-ww39-953v-wcq6")
         if "severity" in result:
             assert isinstance(result["severity"], list)

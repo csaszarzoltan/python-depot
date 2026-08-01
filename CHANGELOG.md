@@ -32,6 +32,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] — 2026-07-30
 
+### User interfaces
+
+- Added six responsive, server-rendered product workspaces for package comparison, provenance explanation, portfolio risk triage, Python upgrade planning, trusted reviews, and SBOM policy management.
+- Added accessible navigation, skip links, live status regions, keyboard-friendly forms, empty states, recovery guidance, mobile layouts, evidence freshness, and permission-aware actions.
+- Added persistent UI workflow state for risk inbox items and evidence-backed reviews without coupling the view layer to SQLAlchemy.
+- Added FastAPI page routes under `/workspace/*` while preserving all existing API contracts.
+
+### Quality
+
+- Added isolated UI behavior tests covering trust semantics, persistent acknowledgement, transitive blocker explanation, moderation conflicts, waiver expiration, accessibility landmarks, and recovery actions.
+- Kept the product UI renderer independently testable with only the Python standard library and existing product-domain modules.
+
+## [0.4.0] — 2026-07-30
+
+### Product capabilities
+
+- Added auditable package decision workspaces with immutable evidence digests.
+- Added release provenance classification for valid, missing, invalid, and changed publisher identities.
+- Added dependency portfolio snapshots with risk-delta alert deduplication.
+- Added project-wide Python compatibility planning with transitive blocker paths.
+- Added evidence-backed reviews and conflict-safe, append-only moderation events.
+- Added SBOM license policy evaluation, expiring waivers, and tenant-scoped private catalog filtering.
+- Added `/api/v1/product` FastAPI contracts for the new product services.
+
+### Security and quality
+
+- Added organization-header isolation for policy evaluation endpoints.
+- Added deterministic standard-library tests for all six capabilities and their negative cases.
+- Preserved existing catalog, ratings, vulnerability, ecosystem, and dashboard contracts.
+
+## [0.3.0] — 2026-07-26
+
 ### Features
 
 - **Vulnerability Dashboard UI** — Interactive Jinja2 dashboard with Chart.js:
@@ -126,35 +158,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quick-start examples and API usage documentation
 - README with project overview and deployment instructions
 - CI configuration: Python 3.12/3.13 matrix, ruff + pytest on push
-
-## [0.4.0] — 2026-07-30
-
-### Product capabilities
-
-- Added auditable package decision workspaces with immutable evidence digests.
-- Added release provenance classification for valid, missing, invalid, and changed publisher identities.
-- Added dependency portfolio snapshots with risk-delta alert deduplication.
-- Added project-wide Python compatibility planning with transitive blocker paths.
-- Added evidence-backed reviews and conflict-safe, append-only moderation events.
-- Added SBOM license policy evaluation, expiring waivers, and tenant-scoped private catalog filtering.
-- Added `/api/v1/product` FastAPI contracts for the new product services.
-
-### Security and quality
-
-- Added organization-header isolation for policy evaluation endpoints.
-- Added deterministic standard-library tests for all six capabilities and their negative cases.
-- Preserved existing catalog, ratings, vulnerability, ecosystem, and dashboard contracts.
-
-## [0.5.0] — 2026-07-30
-
-### User interfaces
-
-- Added six responsive, server-rendered product workspaces for package comparison, provenance explanation, portfolio risk triage, Python upgrade planning, trusted reviews, and SBOM policy management.
-- Added accessible navigation, skip links, live status regions, keyboard-friendly forms, empty states, recovery guidance, mobile layouts, evidence freshness, and permission-aware actions.
-- Added persistent UI workflow state for risk inbox items and evidence-backed reviews without coupling the view layer to SQLAlchemy.
-- Added FastAPI page routes under `/workspace/*` while preserving all existing API contracts.
-
-### Quality
-
-- Added isolated UI behavior tests covering trust semantics, persistent acknowledgement, transitive blocker explanation, moderation conflicts, waiver expiration, accessibility landmarks, and recovery actions.
-- Kept the product UI renderer independently testable with only the Python standard library and existing product-domain modules.

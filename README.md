@@ -23,8 +23,8 @@ Curated Python package discovery platform — search, rate, review, and monitor 
 || 🔒 **Vulnerabilities** | safety CLI + OSV.dev scanning | `GET/POST /api/v1/vulnerabilities/{name}` |
 || 🛡️ **Security Dashboard** | Health overview, trends, package scoring | `GET /api/v1/dependency-health/*` |
 || ⚠️ **Alerts** | New-vuln detection + webhook delivery | `GET /api/v1/dependency-health/alerts` |
-|| 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
-|| 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
+| 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
+| 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
 | 📋 **Reports** | Monthly Best-of reports (JSON + HTML) | `GET/POST /api/v1/reports/` |
 | 🔄 **uv Migration** | Automated pip/poetry/pipenv → uv migration | `python-depot-migrate --scan ./project` |
 | ❤️ **Health** | Detailed health check with DB status | `GET /health` |

@@ -169,20 +169,32 @@ class TestBehavioralWebhookThreshold:
     @pytest.mark.anyio
     async def test_webhook_fires_for_critical(self):
         """A CRITICAL vuln above a MEDIUM threshold fires the webhook."""
-        engine = AlertEngine(
-            db=MagicMock(),
-            webhook_url="https://hooks.example.com/alerts",
-            severity_threshold="MEDIUM",
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+        from python_depot.dependency_health.alerts import AlertEngine
+
+        mock_response = httpx.Response(
+            200, json={"status": "ok"},
+            request=httpx.Request("POST", "https://hooks.example.com/alerts"),
         )
-        alert = {
-            "package_name": "flask",
-            "vuln_id": "GHSA-crit-001",
-            "severity": "CRITICAL",
-            "score": 9.5,
-            "timestamp": "2026-07-24T00:00:00Z",
-        }
-        result = await engine.fire_webhook(alert)
-        assert result is True
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", new=mock_post):
+            engine = AlertEngine(
+                db=MagicMock(),
+                webhook_url="https://hooks.example.com/alerts",
+                severity_threshold="MEDIUM",
+            )
+            alert = {
+                "package_name": "flask",
+                "vuln_id": "GHSA-crit-001",
+                "severity": "CRITICAL",
+                "score": 9.5,
+                "timestamp": "2026-07-24T00:00:00Z",
+            }
+            result = await engine.fire_webhook(alert)
+            assert result is True
 
     @pytest.mark.anyio
     async def test_webhook_does_not_fire_for_below_threshold(self):
@@ -205,44 +217,68 @@ class TestBehavioralWebhookThreshold:
     @pytest.mark.anyio
     async def test_webhook_threshold_respected_multiple_alerts(self):
         """Only vulns above threshold trigger webhook in a batch."""
-        engine = AlertEngine(
-            db=MagicMock(),
-            webhook_url="https://hooks.example.com/alerts",
-            severity_threshold="HIGH",
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+        from python_depot.dependency_health.alerts import AlertEngine
+
+        mock_response = httpx.Response(
+            200, json={"status": "ok"},
+            request=httpx.Request("POST", "https://hooks.example.com/alerts"),
         )
-        low_alert = {
-            "package_name": "celery",
-            "vuln_id": "GHSA-low-002",
-            "severity": "LOW",
-            "score": 1.0,
-        }
-        high_alert = {
-            "package_name": "celery",
-            "vuln_id": "GHSA-high-002",
-            "severity": "HIGH",
-            "score": 7.0,
-        }
-        low_result = await engine.fire_webhook(low_alert)
-        high_result = await engine.fire_webhook(high_alert)
-        assert low_result is False
-        assert high_result is True
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", new=mock_post):
+            engine = AlertEngine(
+                db=MagicMock(),
+                webhook_url="https://hooks.example.com/alerts",
+                severity_threshold="HIGH",
+            )
+            low_alert = {
+                "package_name": "celery",
+                "vuln_id": "GHSA-low-002",
+                "severity": "LOW",
+                "score": 1.0,
+            }
+            high_alert = {
+                "package_name": "celery",
+                "vuln_id": "GHSA-high-002",
+                "severity": "HIGH",
+                "score": 7.0,
+            }
+            low_result = await engine.fire_webhook(low_alert)
+            high_result = await engine.fire_webhook(high_alert)
+            assert low_result is False
+            assert high_result is True
 
     @pytest.mark.anyio
     async def test_correct_payload_sent(self):
         """Webhook receives the expected payload structure."""
-        engine = AlertEngine(
-            db=MagicMock(),
-            webhook_url="https://hooks.example.com/alerts",
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+        from python_depot.dependency_health.alerts import AlertEngine
+
+        mock_response = httpx.Response(
+            200, json={"status": "ok"},
+            request=httpx.Request("POST", "https://hooks.example.com/alerts"),
         )
-        alert = {
-            "package_name": "requests",
-            "vuln_id": "GHSA-rq-0001",
-            "severity": "CRITICAL",
-            "score": 9.0,
-            "timestamp": "2026-07-24T12:00:00Z",
-        }
-        result = await engine.fire_webhook(alert)
-        assert result is True
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", new=mock_post):
+            engine = AlertEngine(
+                db=MagicMock(),
+                webhook_url="https://hooks.example.com/alerts",
+            )
+            alert = {
+                "package_name": "requests",
+                "vuln_id": "GHSA-rq-0001",
+                "severity": "CRITICAL",
+                "score": 9.0,
+                "timestamp": "2026-07-24T12:00:00Z",
+            }
+            result = await engine.fire_webhook(alert)
+            assert result is True
 
 
 class TestBehavioralAlertHistory:
