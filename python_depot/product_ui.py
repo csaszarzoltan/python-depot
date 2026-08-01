@@ -15,12 +15,21 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 
 from python_depot.product.migration_planner import MigrationPlanner
 from python_depot.product.policy_gate import PolicyGate, PolicyRule
 from python_depot.product.provenance import assess_provenance
 
 _PAGES = {
+    "projects": (
+        "Projects",
+        "Save dependency context once and reuse it across daily workflows.",
+    ),
+    "project-detail": (
+        "Project workspace",
+        "Review the current dependency snapshot and changes over time.",
+    ),
     "decisions": (
         "Compare packages",
         "Build a shortlist and record a defensible choice.",
@@ -32,6 +41,10 @@ _PAGES = {
     "risk-inbox": (
         "Risk inbox",
         "Triage package changes by severity, owner, and workflow state.",
+    ),
+    "risk-detail": (
+        "Risk detail",
+        "Review context, ownership, and the complete activity history.",
     ),
     "upgrade": (
         "Python upgrade planner",
@@ -72,8 +85,26 @@ class ProductUiService:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT,
                     properties TEXT, created_at REAL
                 );
+                CREATE TABLE IF NOT EXISTS projects(
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, source TEXT NOT NULL,
+                    created_at REAL NOT NULL, updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS project_snapshots(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL,
+                    dependencies TEXT NOT NULL, raw_input TEXT NOT NULL,
+                    ignored_lines INTEGER NOT NULL, created_at REAL NOT NULL
+                );
                 """
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(risk_items)")}
+            if "owner" not in columns:
+                db.execute(
+                    "ALTER TABLE risk_items ADD COLUMN owner TEXT NOT NULL DEFAULT ''"
+                )
+            if "due_date" not in columns:
+                db.execute(
+                    "ALTER TABLE risk_items ADD COLUMN due_date TEXT NOT NULL DEFAULT ''"
+                )
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -86,13 +117,20 @@ class ProductUiService:
         item_id = uuid.uuid4().hex
         with self._db() as db:
             db.execute(
-                "INSERT INTO risk_items VALUES (?,?,?,?,?,'NEW',?)",
+                "INSERT INTO risk_items(id,project,package,severity,message,state,updated_at,owner,due_date) VALUES (?,?,?,?,?,'NEW',?,'','')",
                 (item_id, project, package, severity, message, time.time()),
             )
         return item_id
 
     def update_risk_item(
-        self, item_id: str, state: str, *, actor: str = "local-user", note: str = ""
+        self,
+        item_id: str,
+        state: str,
+        *,
+        actor: str = "local-user",
+        note: str = "",
+        owner: str | None = None,
+        due_date: str | None = None,
     ) -> None:
         allowed = {"ACKNOWLEDGED", "ASSIGNED", "SNOOZED", "RESOLVED", "REOPENED"}
         if state not in allowed:
@@ -105,8 +143,8 @@ class ProductUiService:
             if current is None:
                 raise KeyError(item_id)
             db.execute(
-                "UPDATE risk_items SET state=?, updated_at=? WHERE id=?",
-                (state, now, item_id),
+                "UPDATE risk_items SET state=?, updated_at=?, owner=COALESCE(?,owner), due_date=COALESCE(?,due_date) WHERE id=?",
+                (state, now, owner, due_date, item_id),
             )
             db.execute(
                 "INSERT INTO risk_history(item_id,actor,from_state,to_state,note,created_at) VALUES (?,?,?,?,?,?)",
@@ -124,6 +162,43 @@ class ProductUiService:
                 "risk_state_changed",
                 {"item_id": item_id, "from": current[0], "to": state},
             )
+
+    def bulk_update_risk_items(
+        self,
+        item_ids: list[str],
+        state: str,
+        *,
+        actor: str = "local-user",
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Atomically transition selected risk items and audit every change."""
+        allowed = {"ACKNOWLEDGED", "ASSIGNED", "SNOOZED", "RESOLVED", "REOPENED"}
+        cleaned = list(dict.fromkeys(x for x in item_ids if x))
+        if state not in allowed or not cleaned:
+            raise ValueError("INBOX_INVALID_BULK_UPDATE")
+        now = time.time()
+        with self._db() as db:
+            placeholders = ",".join("?" for _ in cleaned)
+            rows = db.execute(
+                f"SELECT id,state FROM risk_items WHERE id IN ({placeholders})", cleaned
+            ).fetchall()
+            current = {row[0]: row[1] for row in rows}
+            missing = [item_id for item_id in cleaned if item_id not in current]
+            if missing:
+                raise KeyError(missing[0])
+            for item_id in cleaned:
+                db.execute(
+                    "UPDATE risk_items SET state=?,updated_at=? WHERE id=?",
+                    (state, now, item_id),
+                )
+                db.execute(
+                    "INSERT INTO risk_history(item_id,actor,from_state,to_state,note,created_at) VALUES (?,?,?,?,?,?)",
+                    (item_id, actor, current[item_id], state, note.strip(), now),
+                )
+            self._track(
+                db, "risk_bulk_state_changed", {"count": len(cleaned), "to": state}
+            )
+        return {"updated": len(cleaned), "failed": []}
 
     @staticmethod
     def _track(
@@ -175,6 +250,125 @@ class ProductUiService:
                 )
             ]
 
+    def create_project(self, name: str, source: str, dependencies: str) -> str:
+        """Create a durable project and its first dependency snapshot."""
+        if not name.strip() or not source.strip():
+            raise ValueError("PROJECT_REQUIRED_FIELDS")
+        project_id = uuid.uuid4().hex
+        now = time.time()
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO projects VALUES (?,?,?,?,?)",
+                (project_id, name.strip(), source.strip(), now, now),
+            )
+        self.import_project_dependencies(project_id, dependencies)
+        return project_id
+
+    @staticmethod
+    def _dependency_rows(raw: str) -> tuple[list[dict[str, str]], int]:
+        parsed, ignored = _parse_dependency_input(raw)
+        rows = []
+        for name in sorted(parsed):
+            match = re.search(
+                rf"(?im)^\s*{re.escape(name)}(?:\[[^]]+\])?\s*([^;#\s]+)?", raw
+            )
+            constraint = (match.group(1) or "") if match else ""
+            rows.append({"name": name, "constraint": constraint})
+        return rows, ignored
+
+    def import_project_dependencies(self, project_id: str, raw: str) -> dict[str, Any]:
+        """Append a snapshot and return package-level changes from the previous one."""
+        rows, ignored = self._dependency_rows(raw)
+        now = time.time()
+        with self._db() as db:
+            project = db.execute(
+                "SELECT id FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if project is None:
+                raise KeyError(project_id)
+            previous = db.execute(
+                "SELECT dependencies FROM project_snapshots WHERE project_id=? ORDER BY id DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            old = (
+                {x["name"]: x.get("constraint", "") for x in json.loads(previous[0])}
+                if previous
+                else {}
+            )
+            new = {x["name"]: x.get("constraint", "") for x in rows}
+            db.execute(
+                "INSERT INTO project_snapshots(project_id,dependencies,raw_input,ignored_lines,created_at) VALUES (?,?,?,?,?)",
+                (project_id, json.dumps(rows, sort_keys=True), raw, ignored, now),
+            )
+            db.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, project_id))
+            self._track(
+                db,
+                "project_snapshot_imported",
+                {"project_id": project_id, "count": len(rows)},
+            )
+        return {
+            "added": sorted(set(new) - set(old)),
+            "removed": sorted(set(old) - set(new)),
+            "changed": sorted(
+                name for name in set(old) & set(new) if old[name] != new[name]
+            ),
+            "ignored_lines": ignored,
+        }
+
+    def track_project_workflow(self, project_id: str, workflow: str) -> None:
+        """Record a privacy-safe launch from a saved project into another workflow."""
+        allowed = {"upgrade", "compare", "risks"}
+        if workflow not in allowed:
+            raise ValueError("PROJECT_WORKFLOW_INVALID")
+        with self._db() as db:
+            exists = db.execute(
+                "SELECT 1 FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(project_id)
+            self._track(
+                db,
+                "project_workflow_opened",
+                {"project_id": project_id, "workflow": workflow},
+            )
+
+    def projects(self) -> list[dict[str, Any]]:
+        with self._db() as db:
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT p.*, (SELECT COUNT(*) FROM project_snapshots s WHERE s.project_id=p.id) snapshot_count FROM projects p ORDER BY updated_at DESC"
+                )
+            ]
+
+    def project(self, project_id: str) -> dict[str, Any]:
+        with self._db() as db:
+            row = db.execute(
+                "SELECT * FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            result = dict(row)
+            snapshots = [
+                dict(x)
+                for x in db.execute(
+                    "SELECT id,dependencies,raw_input,ignored_lines,created_at FROM project_snapshots WHERE project_id=? ORDER BY id DESC",
+                    (project_id,),
+                )
+            ]
+            for snapshot in snapshots:
+                snapshot["dependencies"] = json.loads(snapshot["dependencies"])
+            result["snapshots"] = snapshots
+            latest = (
+                snapshots[0]
+                if snapshots
+                else {"dependencies": [], "ignored_lines": 0, "raw_input": ""}
+            )
+            result["dependencies"] = latest["dependencies"]
+            result["ignored_lines"] = latest["ignored_lines"]
+            result["raw_input"] = latest["raw_input"]
+            return result
+
     def submit_review(
         self, package: str, author: str, body: str, evidence_hash: str
     ) -> str:
@@ -207,6 +401,7 @@ def _layout(
     nav = "".join(
         f'<a href="/workspace/{slug}"{" aria-current=page" if slug == page else ""}>{_esc(label)}</a>'
         for slug, (label, _subtitle) in _PAGES.items()
+        if slug not in {"risk-detail", "project-detail"}
     )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -228,9 +423,12 @@ def render_product_page(
         raise KeyError(page)
     payload = payload or {}
     renderers = {
+        "projects": _projects,
+        "project-detail": _project_detail,
         "decisions": _decisions,
         "trust": _trust,
         "risk-inbox": _risk_inbox,
+        "risk-detail": _risk_detail,
         "upgrade": _upgrade,
         "reviews": _reviews,
         "policy": _policy,
@@ -238,6 +436,43 @@ def render_product_page(
     notice = str(payload.get("notice", "Ready"))
     has_evidence = bool(payload) and not bool(payload.get("errors"))
     return _layout(page, renderers[page](service, payload), notice, has_evidence)
+
+
+def _projects(service: ProductUiService, _payload: dict[str, Any]) -> str:
+    projects = service.projects()
+    if projects:
+        listing = "".join(
+            f'<li><a href="/workspace/projects/{_esc(item["id"])}"><strong>{_esc(item["name"])}</strong></a><span>{_esc(item["source"])}</span><small>{item["snapshot_count"]} snapshots</small></li>'
+            for item in projects
+        )
+        body = f'<ul class="cards project-list">{listing}</ul>'
+    else:
+        body = '<div class="empty"><h2>No projects yet</h2><p>Create a project once to reuse its dependency context across upgrade, policy, and risk workflows.</p></div>'
+    return f'<section class="panel"><h2>Saved projects</h2>{body}</section><section class="panel"><h2>Create project</h2><form method="post" action="/workspace/projects" class="stack"><label>Project name<input name="name" required maxlength="120" placeholder="Checkout API"></label><label>Repository or source<input name="source" required maxlength="300" placeholder="team/checkout"></label><label>Dependencies<textarea name="dependencies" required placeholder="requests>=2.31"></textarea></label><button class="primary">Create project</button></form></section>'
+
+
+def _project_detail(service: ProductUiService, payload: dict[str, Any]) -> str:
+    project = service.project(str(payload["project_id"]))
+    dependencies = (
+        "".join(
+            f"<tr><td>{_esc(item['name'])}</td><td>{_esc(item.get('constraint') or 'Unpinned')}</td></tr>"
+            for item in project["dependencies"]
+        )
+        or '<tr><td colspan="2">No dependencies detected</td></tr>'
+    )
+    history = "".join(
+        f"<li><strong>Snapshot {len(project['snapshots']) - index}</strong><span>{len(snapshot['dependencies'])} dependencies; {snapshot['ignored_lines']} lines need review</span></li>"
+        for index, snapshot in enumerate(project["snapshots"])
+    )
+    notice = str(payload.get("change_notice", ""))
+    callout = (
+        f'<div class="callout success" role="status">{_esc(notice)}</div>'
+        if notice
+        else ""
+    )
+    project_query = quote_plus(str(project["name"]))
+    actions = f'<nav class="context-actions" aria-label="Project actions"><a class="button primary" href="/workspace/projects/{_esc(project["id"])}/upgrade">Analyze Python upgrade</a><a class="button" href="/workspace/projects/{_esc(project["id"])}/compare">Compare dependencies</a><a class="button" href="/workspace/risk-inbox?q={project_query}">View project risks</a></nav>'
+    return f'<p><a href="/workspace/projects">Back to projects</a></p>{actions}<section class="panel"><h2>{_esc(project["name"])}</h2><p>{_esc(project["source"])}</p>{callout}<div class="table-wrap" tabindex="0"><table><caption>{len(project["dependencies"])} dependencies</caption><thead><tr><th>Package</th><th>Constraint</th></tr></thead><tbody>{dependencies}</tbody></table></div></section><section class="panel"><h2>Import a new snapshot</h2><form method="post" action="/workspace/projects/{_esc(project["id"])}/import" class="stack"><label>Dependency data<textarea name="dependencies" required>{_esc(project["raw_input"])}</textarea></label><button class="primary">Analyze and import</button></form></section><section class="panel"><h2>Snapshot history</h2><ol class="timeline">{history}</ol></section>'
 
 
 def _decisions(_service: ProductUiService, payload: dict[str, Any]) -> str:
@@ -297,14 +532,6 @@ def _risk_inbox(service: ProductUiService, payload: dict[str, Any]) -> str:
     query = str(payload.get("query", ""))
     state = str(payload.get("state", "ALL"))
     items = service.risk_items(query=query, state=state)
-    if not items:
-        body = '<div class="empty"><h2>No matching risk changes</h2><p>Clear filters or refresh a portfolio to see risk deltas.</p></div>'
-    else:
-        rows = "".join(
-            f'<tr><td>{_esc(x["project"])}</td><td>{_esc(x["package"])}</td><td><span class="severity">{_esc(x["severity"])}</span></td><td>{_esc(x["message"])}</td><td>{_esc(x["state"])}</td><td><form method="post" action="/workspace/risk-inbox/{_esc(x["id"])} /state" aria-label="Actions for {_esc(x["package"])}" class="inline-action"><input type="hidden" name="return_query" value="{_esc(query)}"><input type="hidden" name="return_state" value="{_esc(state)}"><label><span class="sr-only">New state</span><select name="state"><option>ACKNOWLEDGED</option><option>ASSIGNED</option><option>SNOOZED</option><option>RESOLVED</option><option>REOPENED</option></select></label><button>Update</button></form></td></tr>'
-            for x in items
-        ).replace(" /state", "/state")
-        body = f'<div class="table-wrap" tabindex="0"><table><caption>{len(items)} risk items</caption><thead><tr><th>Project</th><th>Package</th><th>Severity</th><th>Change</th><th>State</th><th>Action</th></tr></thead><tbody>{rows}</tbody></table></div>'
     states = [
         "ALL",
         "NEW",
@@ -318,7 +545,27 @@ def _risk_inbox(service: ProductUiService, payload: dict[str, Any]) -> str:
         f'<option value="{x}"{" selected" if x == state else ""}>{x.replace("_", " ").title()}</option>'
         for x in states
     )
+    if not items:
+        body = '<div class="empty"><h2>No matching risk changes</h2><p>Clear filters or refresh a portfolio to see risk deltas.</p></div>'
+    else:
+        rows = "".join(
+            f'<tr><td><input type="checkbox" name="item_ids" value="{_esc(x["id"])}" aria-label="Select {_esc(x["package"])}"></td><td>{_esc(x["project"])}</td><td><a href="/workspace/risk-inbox/{_esc(x["id"])}">{_esc(x["package"])}</a></td><td><span class="severity">{_esc(x["severity"])}</span></td><td>{_esc(x["message"])}</td><td>{_esc(x["state"])}</td><td>{_esc(x.get("owner") or "Unassigned")}</td><td>{_esc(x.get("due_date") or "No due date")}</td><td><form method="post" action="/workspace/risk-inbox/{_esc(x["id"])}/state" aria-label="Actions for {_esc(x["package"])}" class="inline-action"><input type="hidden" name="return_query" value="{_esc(query)}"><input type="hidden" name="return_state" value="{_esc(state)}"><select name="state" aria-label="New state for {_esc(x["package"])}"><option>ACKNOWLEDGED</option><option>ASSIGNED</option><option>SNOOZED</option><option>RESOLVED</option><option>REOPENED</option></select><button>Update</button></form></td></tr>'
+            for x in items
+        )
+        body = f'<form method="post" action="/workspace/risk-inbox/bulk"><input type="hidden" name="return_query" value="{_esc(query)}"><input type="hidden" name="return_state" value="{_esc(state)}"><div class="bulk-bar"><label>Selected action<select name="state"><option>ACKNOWLEDGED</option><option>ASSIGNED</option><option>SNOOZED</option><option>RESOLVED</option><option>REOPENED</option></select></label><label>Note<input name="note" maxlength="300" placeholder="Reason or context"></label><button>Update selected</button></div><div class="table-wrap" tabindex="0"><table><caption>{len(items)} risk items</caption><thead><tr><th scope="col">Select</th><th>Project</th><th>Package</th><th>Severity</th><th>Change</th><th>State</th><th>Owner</th><th>Due</th><th>Quick action</th></tr></thead><tbody>{rows}</tbody></table></div></form>'
     return f'<section class="panel"><div class="section-heading"><h2>Risk changes</h2><a class="button primary" href="/workspace/risk-inbox?notice=Portfolio+refresh+requested">Refresh portfolio</a></div><form method="get" class="filters" aria-label="Risk filters"><label>State<select name="state">{options}</select></label><label>Search<input name="q" type="search" value="{_esc(query)}" placeholder="Package, project, or message"></label><button>Apply filters</button><a class="button" href="/workspace/risk-inbox">Clear</a></form>{body}</section>'
+
+
+def _risk_detail(service: ProductUiService, payload: dict[str, Any]) -> str:
+    risk = service.risk_item(str(payload["item_id"]))
+    history = (
+        "".join(
+            f"<li><strong>{_esc(row['to_state'])}</strong><span>by {_esc(row['actor'])} from {_esc(row['from_state'])}</span><p>{_esc(row['note'] or 'No note')}</p></li>"
+            for row in risk["history"]
+        )
+        or "<li>No activity yet.</li>"
+    )
+    return f'<p><a href="/workspace/risk-inbox">Back to risk inbox</a></p><section class="panel"><h2>{_esc(risk["package"])}</h2><dl class="detail-grid"><dt>Project</dt><dd>{_esc(risk["project"])}</dd><dt>Severity</dt><dd>{_esc(risk["severity"])}</dd><dt>State</dt><dd>{_esc(risk["state"])}</dd><dt>Owner</dt><dd>{_esc(risk.get("owner") or "Unassigned")}</dd><dt>Due date</dt><dd>{_esc(risk.get("due_date") or "Not set")}</dd></dl><h3>Risk context</h3><p>{_esc(risk["message"])}</p><h3>Update risk</h3><form method="post" action="/workspace/risk-inbox/{_esc(risk["id"])}/state" class="stack"><input type="hidden" name="return_state" value="ALL"><label>State<select name="state"><option>ACKNOWLEDGED</option><option>ASSIGNED</option><option>SNOOZED</option><option>RESOLVED</option><option>REOPENED</option></select></label><label>Owner<input name="owner" value="{_esc(risk.get("owner") or "")}" maxlength="100"></label><label>Due date<input type="date" name="due_date" value="{_esc(risk.get("due_date") or "")}"></label><label>Activity note<textarea name="note" maxlength="300"></textarea></label><button class="primary">Save risk update</button></form></section><section class="panel"><h2>Activity history</h2><ol class="timeline">{history}</ol></section>'
 
 
 def _parse_dependency_input(raw: str) -> tuple[dict[str, dict[str, Any]], int]:

@@ -2,7 +2,7 @@
 
 Python dependency intelligence and governance platform for package discovery, vulnerability monitoring, risk triage, upgrade planning, policy evaluation, and safe migration to `uv`.
 
-[![Version](https://img.shields.io/badge/version-0.7.0-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue)](./CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-pytest-brightgreen)](./tests)
 [![Security](https://img.shields.io/badge/security-dashboard-blue)](./docs/dependency-health.md)
 [![Ruff](https://img.shields.io/badge/ruff-passing-brightgreen)](./pyproject.toml)
@@ -12,9 +12,12 @@ Python dependency intelligence and governance platform for package discovery, vu
 
 ---
 
-## What is new in v0.7
+## What is new in v0.10
 
 - Filterable, actionable risk inbox with state-preserving updates.
+- Atomic bulk triage, persistent owners and due dates, and detailed audit timelines.
+- Persistent project workspaces with dependency snapshots and added/removed/changed package deltas.
+- One-click reuse of saved project context in upgrade planning, package comparison, and risk filtering.
 - Auditable risk transition history and privacy-conscious telemetry hooks.
 - Upgrade planner accepts normal requirements text as well as JSON.
 - Accessible comparison validation that preserves user input.
@@ -27,6 +30,7 @@ See [the v0.7 product engineering report](./docs/v0.7-product-engineering-report
 
 | Workspace | Path | Daily-use improvement |
 |---|---|---|
+| Projects | `/workspace/projects` | Reusable dependency context and immutable snapshots |
 | Package decisions | `/workspace/decisions` | Guided shortlist with accessible validation |
 | Package trust | `/workspace/trust` | Clear provenance caveats and truthful evidence state |
 | Risk inbox | `/workspace/risk-inbox` | Search, state filters, inline state actions, preserved context |

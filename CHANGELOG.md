@@ -5,6 +5,51 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-08-01
+
+### Cross-workspace project context
+
+- Added one-click project-to-upgrade navigation using the latest saved dependency snapshot.
+- Added one-click project-to-comparison navigation with detected package candidates prefilled.
+- Added contextual project-risk navigation with the project name preserved as the risk search.
+- Added privacy-safe workflow-launch telemetry that excludes repository and dependency content.
+- Added explicit 404 behavior for missing project context.
+
+### Quality
+
+- Added five TDD acceptance tests for project context reuse, prefill behavior, telemetry privacy, and missing-project recovery.
+- Focused product regression expanded to 40 passing tests.
+
+## [0.9.0] — 2026-08-01
+
+### Persistent project workspaces
+
+- Added durable projects with a reusable repository/source context.
+- Added requirements-style dependency imports and immutable project snapshots.
+- Added package-level delta reporting for added, removed, and constraint-changed dependencies.
+- Added project list and detail workspaces with dependency tables, import forms, and snapshot history.
+- Added privacy-conscious snapshot telemetry containing only project identifier and dependency count.
+
+### Quality
+
+- Added five TDD acceptance tests for project creation, re-import deltas, UI states, and routes.
+- Focused product regression expanded to 35 passing tests.
+
+## [0.8.0] — 2026-08-01
+
+### Daily risk operations
+
+- Added persistent risk ownership and due dates with forward-compatible SQLite migration.
+- Added atomic bulk triage with all-or-nothing validation and per-item audit history.
+- Added risk detail pages with project context, state, ownership, due date, and activity timeline.
+- Added single-risk edit forms for state, owner, due date, and notes.
+- Added multi-select inbox controls while retaining quick single-item actions.
+
+### Quality
+
+- Added five TDD acceptance tests for ownership, bulk atomicity, detail views, and audit history.
+- Preserved all v0.7 and original product UI behavior; the focused product regression now has 30 passing tests.
+
 ## [0.7.0] — 2026-08-01
 
 ### User experience
