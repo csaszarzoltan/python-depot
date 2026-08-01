@@ -1,8 +1,9 @@
 # PythonDepot
 
-Curated Python package discovery platform — search, rate, review, and monitor Python packages through a single FastAPI service.
+Python dependency intelligence and governance platform for package discovery, vulnerability monitoring, risk triage, upgrade planning, policy evaluation, and safe migration to `uv`.
 
-[![Tests](https://img.shields.io/badge/tests-340%20passed-brightgreen)](./tests)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)](./CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-pytest-brightgreen)](./tests)
 [![Security](https://img.shields.io/badge/security-dashboard-blue)](./docs/dependency-health.md)
 [![Ruff](https://img.shields.io/badge/ruff-passing-brightgreen)](./pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](./pyproject.toml)
@@ -10,6 +11,28 @@ Curated Python package discovery platform — search, rate, review, and monitor 
 [![Railway](https://img.shields.io/badge/deploy%20on-Railway-purple)](./railway.toml)
 
 ---
+
+## What is new in v0.7
+
+- Filterable, actionable risk inbox with state-preserving updates.
+- Auditable risk transition history and privacy-conscious telemetry hooks.
+- Upgrade planner accepts normal requirements text as well as JSON.
+- Accessible comparison validation that preserves user input.
+- Truthful evidence state instead of claiming unexplored workspaces are current.
+- Corrected package configuration and declared form-processing dependency.
+
+See [the v0.7 product engineering report](./docs/v0.7-product-engineering-report.md) for product analysis, requirements, implementation details, tests, and deferred opportunities.
+
+## Product workspaces
+
+| Workspace | Path | Daily-use improvement |
+|---|---|---|
+| Package decisions | `/workspace/decisions` | Guided shortlist with accessible validation |
+| Package trust | `/workspace/trust` | Clear provenance caveats and truthful evidence state |
+| Risk inbox | `/workspace/risk-inbox` | Search, state filters, inline state actions, preserved context |
+| Python upgrade | `/workspace/upgrade` | Requirements text or JSON input with review feedback |
+| Trusted reviews | `/workspace/reviews` | Evidence-backed review workflow |
+| SBOM policy | `/workspace/policy` | Policy outcome and waiver visibility |
 
 ## Features
 
@@ -278,7 +301,7 @@ python-depot/
 │   │   └── reports.py
 │   ├── services/              # Service layer classes
 │   └── templates/             # Report HTML templates
-├── src/python_depot_migrate/  # uv Migration Assistant CLI
+├── python_depot_migrate/  # uv Migration Assistant CLI
 │   ├── __init__.py
 │   ├── __main__.py            # python -m python_depot_migrate
 │   ├── cli.py                 # CLI entry point + batch mode

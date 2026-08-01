@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-08-01
+
+### User experience
+
+- Added server-side risk inbox search and workflow-state filtering.
+- Added inline risk state updates with preserved filters and actionable notices.
+- Added accessible decision validation with value preservation.
+- Added requirements-style input to the Python upgrade planner and explicit unsupported-line feedback.
+- Replaced misleading default evidence freshness with evaluated/not-evaluated semantics.
+
+### Engineering and quality
+
+- Added immutable risk transition history and privacy-conscious telemetry hooks.
+- Added six TDD acceptance/integration tests for v0.7 workflows.
+- Added responsive table, focus, reduced-motion, and screen-reader improvements.
+- Corrected setuptools package discovery and declared `python-multipart`.
+- Added the complete product engineering report and updated README.
+
 ## [0.6.0] — 2026-07-31
 
 ### Features
