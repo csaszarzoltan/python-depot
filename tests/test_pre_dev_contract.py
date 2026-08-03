@@ -10,6 +10,7 @@ import pytest
 from fastapi.routing import APIRoute, _IncludedRouter
 from httpx import ASGITransport, AsyncClient
 
+from python_depot import __version__
 from src.app import app
 
 
@@ -64,7 +65,7 @@ class TestInterfaceImports:
 
         instance = create_app()
         assert instance.title == "PythonDepot"
-        assert instance.version == "0.1.0"
+        assert instance.version == __version__
 
     def test_packages_router_import(self):
         """Packages router imports without error."""
@@ -144,6 +145,26 @@ class TestInterfaceRouteRegistration:
             # Supply-chain typosquatting routes
             "/api/v1/supply-chain/check",
             "/api/v1/supply-chain/scan",
+            # Product portfolio routes
+            "/api/v1/product/decision-workspaces",
+            "/api/v1/product/migration-plans",
+            "/api/v1/product/portfolios",
+            "/api/v1/product/portfolios/{portfolio_id}/snapshots",
+            "/api/v1/product/provenance/evaluate",
+            "/api/v1/product/trusted-reviews",
+            "/api/v1/product/organizations/{organization_id}/policy-evaluations",
+            # Workspace routes
+            "/workspace/{page}",
+            "/workspace/upgrade",
+            "/workspace/projects",
+            "/workspace/projects/{project_id}",
+            "/workspace/projects/{project_id}/compare",
+            "/workspace/projects/{project_id}/import",
+            "/workspace/projects/{project_id}/upgrade",
+            "/workspace/decisions",
+            "/workspace/risk-inbox/{item_id}",
+            "/workspace/risk-inbox/{item_id}/state",
+            "/workspace/risk-inbox/bulk",
             # Dashboard UI routes
             "/dashboard",
             "/dashboard/packages",
@@ -230,7 +251,7 @@ class TestBehavioralHealth:
         data = resp.json()
         assert "status" in data
         assert "version" in data
-        assert data["version"] == "0.1.0"
+        assert data["version"] == __version__
         assert "timestamp" in data
         assert "uptime" in data
         # uptime should be a non-empty string like "0d 0h 0m Ns"

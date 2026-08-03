@@ -1,10 +1,21 @@
 """Shared test fixtures."""
+import os
+import tempfile
+from pathlib import Path
 
-import pytest
-from httpx import ASGITransport, AsyncClient
+# Per-process DB isolation: parallel kanban workers (tester, tech-lead,
+# documenter) previously raced on the hardcoded /tmp/python_depot.db,
+# causing "table already exists" / "no such table" flakiness. Each pytest
+# process gets its own temp DB file (env var must be set BEFORE the
+# python_depot.database import below, which creates the engine eagerly).
+_db_dir = Path(tempfile.mkdtemp(prefix="python_depot_test_"))
+os.environ["PYTHON_DEPOT_DATABASE_URL"] = f"sqlite:///{_db_dir / 'test.db'}"
 
-from python_depot.database import reset_db
-from src.app import app
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from python_depot.database import reset_db  # noqa: E402
+from src.app import app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -3,11 +3,16 @@
 Provides a shared Base for SQLAlchemy models and a session factory.
 Import Base from here to define models inside the python_depot sub-packages.
 """
+import os
+
 import sqlalchemy.exc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL = "sqlite:////tmp/python_depot.db"
+# Overridable so test runs can isolate per-process (see tests/conftest.py).
+# Parallel kanban workers sharing /tmp/python_depot.db caused drop/create
+# races ("table already exists" / "no such table") in the test suite.
+DATABASE_URL = os.environ.get("PYTHON_DEPOT_DATABASE_URL", "sqlite:////tmp/python_depot.db")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

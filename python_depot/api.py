@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+from python_depot import __version__
 from python_depot.database import engine, init_db
 from python_depot.routers import (
     analytics,
@@ -147,7 +148,7 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="PythonDepot",
         description="Curated Python package discovery platform",
-        version="0.5.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -200,7 +201,7 @@ def create_app() -> FastAPI:
     @application.get("/")
     async def root():
         """API root — basic service info."""
-        return {"message": "PythonDepot API", "version": "0.5.0"}
+        return {"message": "PythonDepot API", "version": __version__}
 
     # ------------------------------------------------------------------
     # Shared pattern: health-check-endpoint
@@ -220,7 +221,7 @@ def create_app() -> FastAPI:
 
         return {
             "status": overall,
-            "version": "0.5.0",
+            "version": __version__,
             "timestamp": datetime.now(UTC).isoformat(),
             "uptime": _format_uptime(uptime_seconds),
             "db_status": db_status,

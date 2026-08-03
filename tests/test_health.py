@@ -1,6 +1,8 @@
 """Tests for health and root endpoints."""
 import pytest
 
+from python_depot import __version__
+
 
 @pytest.mark.anyio
 async def test_health_returns_200(client):
@@ -22,4 +24,4 @@ async def test_root_returns_message(client):
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "PythonDepot API"
-    assert data["version"] == "0.1.0"
+    assert data["version"] == __version__
