@@ -10,9 +10,11 @@ Detects typosquatting and malicious-package risk for PyPI packages:
 - ``SupplyChainScanner``: combines name similarity, feed membership,
   download count and release freshness into an integer 0-100 score.
 - ``SupplyChainAlerter``: fires webhook notifications for newly
-  detected suspicious packages exactly once.
-- ``store_verdict`` / ``list_verdicts``: SQLite persistence via the
-  ``SupplyChainVerdict`` model.
+  detected suspicious packages exactly once (DB-backed dedup).
+- ``fetch_package_info``: real PyPI metadata (downloads, release date)
+  feeding the heuristics — unknown data is never guessed.
+- ``store_verdict`` / ``store_verdicts`` / ``list_verdicts``: SQLite
+  persistence via the ``SupplyChainVerdict`` model (batch upsert).
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from python_depot.models.supply_chain_verdict import SupplyChainVerdict
@@ -34,9 +37,21 @@ __all__ = [
     "MaliciousFeed",
     "SupplyChainScanner",
     "SupplyChainAlerter",
+    "fetch_package_info",
     "store_verdict",
+    "store_verdicts",
     "list_verdicts",
 ]
+
+# Upper bound for package names accepted by the similarity engine. The
+# Damerau-Levenshtein matrix is O(n*m) — an unbounded name would let an
+# unauthenticated caller CPU-amplify the async event loop (F1).
+MAX_NAME_LENGTH = 200
+
+# Real PyPI metadata sources for the download/freshness heuristics.
+PYPI_JSON_URL = "https://pypi.org/pypi/{name}/json"
+PYPI_STATS_URL = "https://pypistats.org/api/packages/{name}/recent"
+METADATA_TIMEOUT = 10.0  # seconds
 
 # Top-N popular PyPI packages used as the typosquatting comparison corpus.
 # A candidate name similar to one of these (but not identical) is flagged.
@@ -82,8 +97,22 @@ class SimilarityEngine:
         """
         self.threshold = threshold
 
+    @staticmethod
+    def _validate_length(a: str, b: str) -> None:
+        """Reject inputs longer than MAX_NAME_LENGTH (CPU-amplification guard).
+
+        The distance matrix is O(n*m); an unbounded name would let a
+        caller stall the async event loop. Raises ValueError — the app
+        maps ValueError to HTTP 422 (see api.py).
+        """
+        if len(a) > MAX_NAME_LENGTH or len(b) > MAX_NAME_LENGTH:
+            raise ValueError(
+                f"package name exceeds max length {MAX_NAME_LENGTH}"
+            )
+
     def levenshtein_distance(self, a: str, b: str) -> int:
         """Return the Levenshtein edit distance between two names."""
+        self._validate_length(a, b)
         if a == b:
             return 0
         if not a:
@@ -108,6 +137,7 @@ class SimilarityEngine:
         Uses optimal string alignment (restricted edit distance): adjacent
         transpositions count as a single edit.
         """
+        self._validate_length(a, b)
         if a == b:
             return 0
         if not a:
@@ -170,6 +200,7 @@ class SimilarityEngine:
         or suffix with a known name is flagged even when the edit distance
         is relatively large (e.g. ``request`` vs ``request-toolkit``).
         """
+        self._validate_length(a, b)
         if a == b:
             return 1.0
         if not a or not b:
@@ -192,13 +223,70 @@ class PackageInfo:
 
     Attributes:
         name: Package name.
-        downloads: Lifetime download count (0 when unknown).
+        downloads: Lifetime download count. ``None`` means the count is
+            UNKNOWN — the scanner must not apply the download heuristic
+            (no reason, no score contribution). ``0`` is a real, known
+            zero. The default of 0 preserves the dataclass contract.
         released_at: First release / publish timestamp (None when unknown).
     """
 
     name: str
-    downloads: int = 0
+    downloads: int | None = 0
     released_at: datetime | None = None
+
+
+def _parse_release_time(pypi: dict) -> datetime | None:
+    """Extract the first release timestamp from a PyPI JSON response."""
+    info = pypi.get("info", {})
+    upload_time = info.get("upload_time")
+    if not upload_time:
+        urls = pypi.get("urls") or []
+        if urls:
+            upload_time = urls[0].get("upload_time_iso_8601")
+    if not upload_time:
+        return None
+    try:
+        return datetime.fromisoformat(str(upload_time).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def fetch_package_info(name: str) -> PackageInfo | None:
+    """Fetch real package metadata (downloads, release date) from PyPI.
+
+    Download counts come from pypistats and release dates from the PyPI
+    JSON API, each best-effort with a bounded timeout. Returns ``None``
+    when the metadata cannot be retrieved at all — unknown data is NEVER
+    guessed, so a failed fetch can never produce a bogus "low download
+    count" reason (F2).
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=METADATA_TIMEOUT, follow_redirects=True
+        ) as client:
+            resp = await client.get(PYPI_JSON_URL.format(name=name))
+            resp.raise_for_status()
+            pypi = resp.json()
+    except (httpx.HTTPError, ValueError):
+        logger.warning("PyPI metadata fetch failed for %s — treating as unknown", name)
+        return None
+
+    released_at = _parse_release_time(pypi)
+
+    downloads: int | None = None
+    try:
+        async with httpx.AsyncClient(
+            timeout=METADATA_TIMEOUT, follow_redirects=True
+        ) as client:
+            stats_resp = await client.get(PYPI_STATS_URL.format(name=name))
+            stats_resp.raise_for_status()
+            stats_data = (stats_resp.json().get("data") or {})
+            last_month = stats_data.get("last_month")
+            downloads = int(last_month) if last_month is not None else None
+    except (httpx.HTTPError, ValueError, TypeError):
+        downloads = None  # unknown — never guess
+
+    return PackageInfo(name=name, downloads=downloads, released_at=released_at)
 
 
 class MaliciousFeed:
@@ -331,10 +419,14 @@ class SupplyChainScanner:
         return best_name, best_score
 
     def scan(self, package: str, info: PackageInfo | None = None) -> SupplyChainVerdict:
-        """Scan a single package and return its supply-chain verdict."""
-        info = info or PackageInfo(name=package)
-        self.feed.refresh()  # refresh feed data on scan
+        """Scan a single package and return its supply-chain verdict.
 
+        ``info`` carries real package metadata (downloads, release date).
+        When omitted — or when download data is unknown (``None``) — the
+        download heuristic is skipped entirely: the scanner never guesses
+        (F2). The feed is NOT refreshed here; callers (``scan_many`` or
+        the router) refresh once per scan run (F5).
+        """
         reasons: list[str] = []
         score = 0.0
 
@@ -349,17 +441,20 @@ class SupplyChainScanner:
             score += 20
             reasons.append(f"name is similar to known package '{best_name}'")
 
-        # 3. Download-count heuristic.
-        dl_risk = self.download_risk(info.downloads)
-        if dl_risk > 0.5:
-            score += dl_risk * 15
-            reasons.append(f"low download count ({info.downloads})")
+        # 3. Download-count heuristic — real data only; unknown is never
+        #    guessed (no reason, no score inflation).
+        if info is not None and info.downloads is not None:
+            dl_risk = self.download_risk(info.downloads)
+            if dl_risk > 0.5:
+                score += dl_risk * 15
+                reasons.append(f"low download count ({info.downloads})")
 
-        # 4. Release-freshness heuristic.
-        fr_risk = self.freshness_risk(info.released_at)
-        if fr_risk > 0.5:
-            score += fr_risk * 15
-            reasons.append("recently published")
+        # 4. Release-freshness heuristic — real data only.
+        if info is not None:
+            fr_risk = self.freshness_risk(info.released_at)
+            if fr_risk > 0.5:
+                score += fr_risk * 15
+                reasons.append("recently published")
 
         final_score = min(100, int(round(score)))
         return SupplyChainVerdict(
@@ -369,7 +464,11 @@ class SupplyChainScanner:
         )
 
     def scan_many(self, packages: list[str]) -> list[SupplyChainVerdict]:
-        """Scan multiple packages and return one verdict per package."""
+        """Scan multiple packages and return one verdict per package.
+
+        Refreshes the feed exactly once for the whole run — the per-package
+        ``scan`` no longer refreshes (F5).
+        """
         self.feed.refresh()
         return [self.scan(package) for package in packages]
 
@@ -380,30 +479,80 @@ class SupplyChainAlerter:
     Follows the existing webhook/email notification pattern used by the
     dependency-health ``AlertEngine``: a package that was already notified
     must not trigger a second notification (exactly-once semantics).
+    Dedup is DB-backed via ``SupplyChainVerdict.notified`` — it survives
+    across alerter instances and requests, not just within one instance
+    (F4). An in-memory set covers the ``db=None`` path.
     """
 
     def __init__(
         self,
         db: Session | None = None,
         webhook_url: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """Initialize the alerter.
 
         Args:
             db: SQLAlchemy session used for exactly-once dedup checks.
             webhook_url: Optional webhook URL for alert delivery.
+            transport: Optional httpx transport (tests inject a
+                       MockTransport to observe deliveries).
         """
         self.db = db
         self.webhook_url = webhook_url
+        self.transport = transport
         self._notified: set[str] = set()
+
+    def _already_notified(self, package: str) -> bool:
+        """Return True when the package has already been alerted on.
+
+        Checks the in-memory set first, then the persistent
+        ``SupplyChainVerdict.notified`` flag. A stale table without the
+        column falls back to in-memory dedup (dev DBs predating the
+        column are recreated by tests/app startup).
+        """
+        if package in self._notified:
+            return True
+        if self.db is not None:
+            try:
+                row = (
+                    self.db.query(SupplyChainVerdict)
+                    .filter(SupplyChainVerdict.package == package)
+                    .first()
+                )
+                return bool(row is not None and row.notified)
+            except OperationalError:
+                logger.warning(
+                    "Verdict table missing 'notified' column — using in-memory dedup"
+                )
+        return False
+
+    def _mark_notified(self, package: str) -> None:
+        """Persist the notified flag so dedup survives future requests."""
+        if self.db is None:
+            return
+        try:
+            row = (
+                self.db.query(SupplyChainVerdict)
+                .filter(SupplyChainVerdict.package == package)
+                .first()
+            )
+            if row is not None:
+                row.notified = True
+                self.db.commit()
+        except OperationalError:
+            logger.warning(
+                "Verdict table missing 'notified' column — skipping persistent dedup"
+            )
 
     async def notify_new_suspicious(self, verdict: SupplyChainVerdict) -> bool:
         """Notify about a suspicious package.
 
         Returns True when a notification was actually sent; returns False
-        when the package was already notified (dedup / exactly-once).
+        when the package was already notified (dedup / exactly-once) or
+        no webhook is configured.
         """
-        if verdict.package in self._notified:
+        if self._already_notified(verdict.package):
             return False
         if not self.webhook_url:
             logger.warning("No webhook URL configured — skipping alert delivery")
@@ -418,7 +567,9 @@ class SupplyChainAlerter:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(
+                timeout=15, transport=self.transport
+            ) as client:
                 resp = await client.post(self.webhook_url, json=payload)
                 resp.raise_for_status()
             logger.info(
@@ -428,41 +579,71 @@ class SupplyChainAlerter:
                 resp.status_code,
             )
         except httpx.HTTPError as exc:
-            logger.error("Webhook delivery failed for %s: %s", verdict.package, exc)
+            # Log the status code only — the exception string embeds the
+            # request URL, which would leak a tokenized webhook URL (F6).
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None:
+                logger.error(
+                    "Webhook delivery failed for %s (status %d)",
+                    verdict.package,
+                    status,
+                )
+            else:
+                logger.error("Webhook delivery failed for %s", verdict.package)
             return False
 
         self._notified.add(verdict.package)
+        self._mark_notified(verdict.package)
         return True
 
 
-def store_verdict(db: Session, verdict: SupplyChainVerdict) -> None:
-    """Persist a verdict in SQLite (insert or update by package)."""
-    existing = (
-        db.query(SupplyChainVerdict)
-        .filter(SupplyChainVerdict.package == verdict.package)
-        .first()
-    )
-    reasons: str | None = verdict.reasons
-    if isinstance(reasons, list):
-        reasons = json.dumps(reasons)
+def store_verdicts(db: Session, verdicts: list[SupplyChainVerdict]) -> None:
+    """Batch-persist verdicts in a single commit (F5).
 
-    if existing is not None:
-        existing.score = verdict.score
-        existing.reasons = reasons
-        if verdict.detected_at is not None:
-            existing.detected_at = verdict.detected_at
-        db.commit()
+    One SELECT IN fetches existing rows, new rows are bulk-added and a
+    single COMMIT writes everything — instead of N separate
+    SELECT+upsert+COMMIT round-trips. The ``notified`` flag is preserved
+    on update so exactly-once alert dedup survives re-scans (F4).
+    """
+    if not verdicts:
         return
 
-    row = SupplyChainVerdict(
-        package=verdict.package,
-        score=verdict.score,
-        reasons=reasons,
-    )
-    if verdict.detected_at is not None:
-        row.detected_at = verdict.detected_at
-    db.add(row)
+    packages = [v.package for v in verdicts]
+    existing = {
+        row.package: row
+        for row in db.query(SupplyChainVerdict)
+        .filter(SupplyChainVerdict.package.in_(packages))
+        .all()
+    }
+
+    for verdict in verdicts:
+        reasons: str | None = verdict.reasons
+        if isinstance(reasons, list):
+            reasons = json.dumps(reasons)
+
+        row = existing.get(verdict.package)
+        if row is not None:
+            row.score = verdict.score
+            row.reasons = reasons
+            if verdict.detected_at is not None:
+                row.detected_at = verdict.detected_at
+            continue
+
+        new_row = SupplyChainVerdict(
+            package=verdict.package,
+            score=verdict.score,
+            reasons=reasons,
+        )
+        if verdict.detected_at is not None:
+            new_row.detected_at = verdict.detected_at
+        db.add(new_row)
+
     db.commit()
+
+
+def store_verdict(db: Session, verdict: SupplyChainVerdict) -> None:
+    """Persist a single verdict (insert or update by package)."""
+    store_verdicts(db, [verdict])
 
 
 def list_verdicts(db: Session) -> list[SupplyChainVerdict]:

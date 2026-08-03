@@ -27,8 +27,10 @@ from python_depot.supply_chain import (
     SimilarityEngine,
     SupplyChainAlerter,
     SupplyChainScanner,
+    fetch_package_info,
     list_verdicts,
     store_verdict,
+    store_verdicts,
 )
 
 
@@ -711,3 +713,250 @@ class TestPersistenceBehavioral:
         packages = {v.package for v in stored}
         assert "requets" in packages
         assert "numpy1" in packages
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for review findings F1-F6 (t_36a69304)
+# ---------------------------------------------------------------------------
+
+
+class TestInputLengthGuard:
+    """SimilarityEngine / scanner reject oversized names (F1)."""
+
+    def test_engine_similarity_rejects_oversized_name(self):
+        """similarity() raises ValueError for names longer than 200 chars."""
+        engine = SimilarityEngine()
+        with pytest.raises(ValueError):
+            engine.similarity("a" * 201, "requests")
+        with pytest.raises(ValueError):
+            engine.similarity("requests", "b" * 201)
+
+    def test_engine_damerau_rejects_oversized_name(self):
+        """damerau_levenshtein_distance() rejects over-long inputs."""
+        engine = SimilarityEngine()
+        with pytest.raises(ValueError):
+            engine.damerau_levenshtein_distance("a" * 201, "b" * 201)
+
+    def test_engine_accepts_max_length_name(self):
+        """A 200-char name is still accepted (boundary)."""
+        engine = SimilarityEngine()
+        assert 0.0 <= engine.similarity("a" * 200, "requests") <= 1.0
+
+    def test_scan_rejects_oversized_package(self):
+        """scan() raises ValueError for names longer than 200 chars."""
+        scanner = SupplyChainScanner()
+        with pytest.raises(ValueError):
+            scanner.scan("a" * 201)
+
+
+class TestDownloadDataHandling:
+    """Download heuristic must never run on unknown data (F2)."""
+
+    def test_scan_without_info_emits_no_low_download_reason(self):
+        """No PackageInfo → unknown data → no reason, no score inflation."""
+        scanner = SupplyChainScanner()
+        verdict = scanner.scan("requests")
+        assert verdict.score == 0
+        assert not any("low download count" in r for r in verdict.reasons)
+
+    def test_scan_with_unknown_downloads_emits_no_low_download_reason(self):
+        """downloads=None means unknown — the heuristic is skipped."""
+        scanner = SupplyChainScanner()
+        info = PackageInfo(name="requests", downloads=None)
+        verdict = scanner.scan("requests", info)
+        assert verdict.score == 0
+        assert not any("low download count" in r for r in verdict.reasons)
+
+    def test_scan_with_real_low_downloads_still_flags(self):
+        """Real (known) low download counts still raise the score."""
+        scanner = SupplyChainScanner()
+        info = PackageInfo(name="requests", downloads=5)
+        verdict = scanner.scan("requests", info)
+        assert any("low download count" in r for r in verdict.reasons)
+        assert verdict.score >= 15
+
+
+def _fake_httpx_client(monkeypatch, responses: list) -> None:
+    """Patch supply_chain.httpx.AsyncClient to serve canned responses.
+
+    ``responses`` is a list of (status_code, json_payload) tuples served
+    in order, one per ``get`` call.
+    """
+    import httpx
+
+    from python_depot import supply_chain as sc
+
+    queue = list(responses)
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, *args, **kwargs):
+            status, payload = queue.pop(0)
+            return httpx.Response(
+                status, json=payload, request=httpx.Request("GET", url)
+            )
+
+    monkeypatch.setattr(sc.httpx, "AsyncClient", _FakeAsyncClient)
+
+
+class TestFetchPackageInfo:
+    """fetch_package_info pulls real PyPI metadata (F2)."""
+
+    @pytest.mark.anyio
+    async def test_fetch_returns_real_metadata(self, monkeypatch):
+        """Downloads and release date come from the real APIs."""
+        pypi_payload = {
+            "info": {"name": "requests", "upload_time": "2011-02-13T21:13:37"},
+            "urls": [],
+        }
+        stats_payload = {"data": {"last_month": 123456789}}
+        _fake_httpx_client(
+            monkeypatch,
+            [(200, pypi_payload), (200, stats_payload)],
+        )
+        info = await fetch_package_info("requests")
+        assert info is not None
+        assert info.name == "requests"
+        assert info.downloads == 123456789
+        assert info.released_at is not None
+
+    @pytest.mark.anyio
+    async def test_fetch_returns_none_when_pypi_fails(self, monkeypatch):
+        """A failed PyPI fetch means unknown data (None), never a guess."""
+        _fake_httpx_client(monkeypatch, [(404, None)])
+        info = await fetch_package_info("no-such-package-xyz")
+        assert info is None
+
+    @pytest.mark.anyio
+    async def test_fetch_unknown_downloads_when_stats_fail(self, monkeypatch):
+        """A failed stats fetch keeps release date but marks downloads unknown."""
+        pypi_payload = {
+            "info": {"name": "requests", "upload_time": "2011-02-13T21:13:37"},
+            "urls": [],
+        }
+        _fake_httpx_client(
+            monkeypatch,
+            [(200, pypi_payload), (404, None)],
+        )
+        info = await fetch_package_info("requests")
+        assert info is not None
+        assert info.downloads is None
+        assert info.released_at is not None
+
+
+class TestSupplyChainAlerterPersistentDedup:
+    """DB-backed exactly-once dedup survives across instances (F4)."""
+
+    @pytest.mark.anyio
+    async def test_dedup_persists_across_instances(self, db_session):
+        """A fresh alerter instance does not re-fire for a notified package."""
+        from unittest.mock import patch
+
+        import httpx
+
+        posts: list[str] = []
+
+        class _FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, json=None, *args, **kwargs):
+                posts.append(str(url))
+                return httpx.Response(
+                    200, json={}, request=httpx.Request("POST", url)
+                )
+
+        verdict = SupplyChainVerdict(package="requets", score=85, reasons="[]")
+        store_verdict(db_session, verdict)
+
+        with patch("python_depot.supply_chain.httpx.AsyncClient", _FakeAsyncClient):
+            first = SupplyChainAlerter(
+                db=db_session, webhook_url="https://hooks.example.com/supply-chain"
+            )
+            sent_first = await first.notify_new_suspicious(verdict)
+            second = SupplyChainAlerter(
+                db=db_session, webhook_url="https://hooks.example.com/supply-chain"
+            )
+            sent_second = await second.notify_new_suspicious(verdict)
+
+        assert sent_first is True
+        assert sent_second is False
+        assert len(posts) == 1
+
+
+class TestWebhookFailureLogging:
+    """Webhook delivery failures log status code only (F6)."""
+
+    @pytest.mark.anyio
+    async def test_alerter_logs_status_code_only(self, caplog):
+        """The webhook URL / exception string must never reach the logs."""
+        import logging
+        from unittest.mock import patch
+
+        import httpx
+
+        async def _fail_post(self, url, json=None, *args, **kwargs):
+            return httpx.Response(500, request=httpx.Request("POST", url))
+
+        verdict = SupplyChainVerdict(package="requets", score=85, reasons="[]")
+        with patch("python_depot.supply_chain.httpx.AsyncClient.post", _fail_post):
+            alerter = SupplyChainAlerter(
+                db=None, webhook_url="https://hooks.example.com/supply-chain"
+            )
+            with caplog.at_level(logging.ERROR, logger="python_depot.supply_chain"):
+                sent = await alerter.notify_new_suspicious(verdict)
+
+        assert sent is False
+        assert "status 500" in caplog.text
+        assert "hooks.example.com" not in caplog.text
+
+
+class TestBatchPersistence:
+    """store_verdicts batches many packages into one commit (F5)."""
+
+    def test_store_verdicts_commits_once_for_many(self, db_session, monkeypatch):
+        """20 packages → a single SELECT + bulk write + one commit."""
+        commits: list[int] = []
+        original_commit = db_session.commit
+
+        def _counting_commit():
+            commits.append(1)
+            return original_commit()
+
+        monkeypatch.setattr(db_session, "commit", _counting_commit)
+        verdicts = [
+            SupplyChainVerdict(package=f"pkg-{i}", score=i, reasons="[]")
+            for i in range(20)
+        ]
+        store_verdicts(db_session, verdicts)
+        assert len(commits) == 1
+        assert db_session.query(SupplyChainVerdict).count() == 20
+
+    def test_store_verdicts_updates_existing_rows(self, db_session):
+        """Re-scanning the same packages updates rows, does not duplicate."""
+        store_verdicts(
+            db_session,
+            [SupplyChainVerdict(package="requets", score=85, reasons="[]")],
+        )
+        store_verdicts(
+            db_session,
+            [SupplyChainVerdict(package="requets", score=90, reasons="[updated]")],
+        )
+        rows = list_verdicts(db_session)
+        assert len(rows) == 1
+        assert rows[0].score == 90
+        assert rows[0].reasons == "[updated]"

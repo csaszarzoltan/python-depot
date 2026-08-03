@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from python_depot.database import Base
@@ -26,6 +26,10 @@ class SupplyChainVerdict(Base):
                  JSON-encoded string (Text column), consistent with the
                  repo's existing ``details`` column convention.
         detected_at: UTC timestamp of when the verdict was produced.
+        notified: Whether an alert webhook has already fired for this
+                  package — DB-backed exactly-once dedup for the
+                  SupplyChainAlerter (mirrors VulnerabilityAlert's
+                  ``webhook_status`` pattern).
     """
 
     __tablename__ = "supply_chain_verdicts"
@@ -36,4 +40,7 @@ class SupplyChainVerdict(Base):
     reasons: Mapped[str | None] = mapped_column(Text, nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    notified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
     )

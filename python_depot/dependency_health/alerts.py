@@ -209,7 +209,13 @@ class AlertEngine:
                 )
                 return True
         except httpx.HTTPError as exc:
-            logger.error("Webhook delivery failed: %s", exc)
+            # Log the status code only — the exception string embeds the
+            # request URL, which would leak a tokenized webhook URL (F6).
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None:
+                logger.error("Webhook delivery failed (status %d)", status)
+            else:
+                logger.error("Webhook delivery failed")
             return False
 
     def list_alerts(

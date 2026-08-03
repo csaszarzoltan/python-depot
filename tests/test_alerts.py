@@ -244,3 +244,35 @@ class TestAlertBehavioral:
             assert "vuln_id" in alert or "id" in alert
             assert "severity" in alert
             assert "package" in alert or "package_name" in alert
+
+
+class TestWebhookFailureLogging:
+    """Webhook delivery failures log status code only (F6)."""
+
+    @pytest.mark.anyio
+    async def test_fire_webhook_failure_logs_status_only(self, caplog):
+        """The webhook URL / exception string must never reach the logs."""
+        import logging
+        from unittest.mock import patch
+
+        import httpx
+        from python_depot.dependency_health.alerts import AlertEngine
+
+        async def _fail_post(self, url, json=None, *args, **kwargs):
+            return httpx.Response(500, request=httpx.Request("POST", url))
+
+        engine = AlertEngine(
+            db=None,
+            webhook_url="https://hooks.example.com/alerts",
+        )  # type: ignore[arg-type]
+        alert = {"package": "flask", "vuln_id": "GHSA-yyyy", "severity": "HIGH"}
+
+        with patch("httpx.AsyncClient.post", new=_fail_post):
+            with caplog.at_level(
+                logging.ERROR, logger="python_depot.dependency_health.alerts"
+            ):
+                result = await engine.fire_webhook(alert)
+
+        assert result is False
+        assert "status 500" in caplog.text
+        assert "hooks.example.com" not in caplog.text
