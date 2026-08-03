@@ -47,9 +47,10 @@ See [the v0.7 product engineering report](./docs/v0.7-product-engineering-report
 | 📈 **Trends** | Time-series download/star data | `GET /api/v1/packages/{name}/trends?period=7d\|30d\|90d` |
 | ⭐ **Ratings** | 1-5 star ratings with distribution | `GET/POST /api/v1/ratings/{name}`, `/summary` |
 | 💬 **Reviews** | User reviews with moderation queue | `GET/POST /api/v1/reviews/{name}` |
-|| 🔒 **Vulnerabilities** | safety CLI + OSV.dev scanning | `GET/POST /api/v1/vulnerabilities/{name}` |
-|| 🛡️ **Security Dashboard** | Health overview, trends, package scoring | `GET /api/v1/dependency-health/*` |
-|| ⚠️ **Alerts** | New-vuln detection + webhook delivery | `GET /api/v1/dependency-health/alerts` |
+| 🔒 **Vulnerabilities** | safety CLI + OSV.dev scanning | `GET/POST /api/v1/vulnerabilities/{name}` |
+| 🛡️ **Security Dashboard** | Health overview, trends, package scoring | `GET /api/v1/dependency-health/*` |
+| ⚠️ **Alerts** | New-vuln detection + webhook delivery | `GET /api/v1/dependency-health/alerts` |
+| 🧬 **Supply Chain** | Typosquatting + malicious-package detection | `GET /api/v1/supply-chain/check\|scan` |
 | 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
 | 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
 | 📋 **Reports** | Monthly Best-of reports (JSON + HTML) | `GET/POST /api/v1/reports/` |
@@ -118,6 +119,9 @@ curl http://localhost:8000/api/v1/dependency-health/overview
 
 # 8. Get package health score
 curl http://localhost:8000/api/v1/dependency-health/requests/score
+
+# 9. Check a package for typosquatting / malicious-package risk
+curl "http://localhost:8000/api/v1/supply-chain/check?package=requets"
 ```
 
 ### Interactive Docs
@@ -171,6 +175,15 @@ curl http://localhost:8000/api/v1/dependency-health/requests/score
 | GET | `/api/v1/dependency-health/packages` | Packages sorted by health score |
 | GET | `/api/v1/dependency-health/alerts` | Recent vulnerability alerts |
 | GET | `/api/v1/dependency-health/{name}/score` | Composite security score for a package |
+
+### Supply-Chain Scanning
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/supply-chain/check` | Typosquatting verdict for a single package (`?package=`) |
+| GET | `/api/v1/supply-chain/scan` | Verdicts for the dependency set (20 popular packages) |
+
+Both endpoints return a 0-100 risk score (`score`) plus a `reasons` array of human-readable detection signals (known-malicious membership, name similarity to a popular package, low download count, recently published). See [docs/supply-chain.md](docs/supply-chain.md) for the full reference and score semantics.
 
 ### Analytics
 
@@ -282,6 +295,7 @@ python-depot/
 │   │   ├── __init__.py
 │   │   ├── models.py
 │   │   └── service.py
+│   ├── supply_chain.py         # Typosquatting + malicious-package scanner
 │   ├── routers/               # FastAPI route handlers
 │   │   ├── __init__.py
 │   │   ├── analytics.py
@@ -290,6 +304,7 @@ python-depot/
 │   │   ├── ratings.py
 │   │   ├── reports.py
 │   │   ├── reviews.py
+│   │   ├── supply_chain.py   # Supply-chain typosquatting endpoints
 │   │   └── vulnerabilities.py
 │   ├── __init__.py
 │   ├── api.py                 # FastAPI app factory (canonical)

@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Supply-chain attack detection
+
+- Added typosquatting detection for PyPI package names: `SimilarityEngine` combines Levenshtein/Damerau-Levenshtein edit distance with prefix/suffix heuristics against a top-20 popular-package corpus (configurable similarity threshold, default 0.8).
+- Added malicious-package feed integration: `MaliciousFeed` loads known-bad names from OSV entries plus an optional curated blocklist and refreshes on every scan.
+- Added download-count and release-freshness heuristics that combine with similarity into a 0-100 risk score with human-readable reasons; low-download, newly published, renamed/similar packages score higher.
+- Added `SupplyChainVerdict` model with SQLite persistence (`store_verdict` / `list_verdicts`) using the existing `database.py` patterns.
+- Added two REST endpoints: `GET /api/v1/supply-chain/check?package=NAME` (single-package verdict: `{score, reasons}`) and `GET /api/v1/supply-chain/scan` (per-package verdicts for the dependency set plus `scanned_at`).
+- Added `SupplyChainAlerter` with exactly-once webhook notifications, firing only for newly detected suspicious packages (score >= 60).
+
 ## [0.10.0] — 2026-08-01
 
 ### Cross-workspace project context
