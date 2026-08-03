@@ -184,6 +184,7 @@ class TestAlertBehavioral:
         from unittest.mock import AsyncMock, patch
 
         import httpx
+
         from python_depot.dependency_health.alerts import AlertEngine
 
         mock_response = httpx.Response(
@@ -256,6 +257,7 @@ class TestWebhookFailureLogging:
         from unittest.mock import patch
 
         import httpx
+
         from python_depot.dependency_health.alerts import AlertEngine
 
         async def _fail_post(self, url, json=None, *args, **kwargs):
