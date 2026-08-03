@@ -141,6 +141,9 @@ class TestInterfaceRouteRegistration:
             "/api/v1/ecosystem/stats",
             "/api/v1/ecosystem/migration-guide/{name}",
             "/api/v1/ecosystem/compatibility",
+            # Supply-chain typosquatting routes
+            "/api/v1/supply-chain/check",
+            "/api/v1/supply-chain/scan",
             # Dashboard UI routes
             "/dashboard",
             "/dashboard/packages",

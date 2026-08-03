@@ -31,6 +31,7 @@ from python_depot.routers import (
     ratings,
     reports,
     reviews,
+    supply_chain,
     vulnerabilities,
 )
 
@@ -186,6 +187,11 @@ def create_app() -> FastAPI:
         ecosystem.router,
         prefix="",
         tags=["ecosystem"],
+    )
+    application.include_router(
+        supply_chain.router,
+        prefix="",
+        tags=["supply-chain"],
     )
 
     # ------------------------------------------------------------------
