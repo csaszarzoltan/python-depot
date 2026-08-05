@@ -12,6 +12,11 @@ Python dependency intelligence and governance platform for package discovery, vu
 
 ---
 
+## What is new in v0.11
+
+- **Offline-capable PyPI caching proxy (PEP 503 simple index)** — a standalone FastAPI proxy that fronts PyPI with a persistent SQLite-backed cache. Point `pip` at it (`pip config set global.index-url http://127.0.0.1:<port>/simple/`) and installs are served from cache; `PYTHONDEPOT_OFFLINE_MODE=1` turns it into a cache-only fallback for air-gapped networks. Includes cache warm-up (`POST /api/v1/cache/warmup` + CLI) and analytics (`GET /api/v1/cache/analytics`: hit rate, bytes served vs proxied). See [docs/offline-cache.md](docs/offline-cache.md).
+- **Supply-chain attack detection** — typosquatting (edit-distance + prefix/suffix similarity against a popular-package corpus) and known-malicious feed integration, combined with download-count and release-freshness heuristics into a 0-100 risk score with human-readable reasons. See [docs/supply-chain.md](docs/supply-chain.md).
+
 ## What is new in v0.10
 
 - Filterable, actionable risk inbox with state-preserving updates.
@@ -51,6 +56,7 @@ See [the v0.7 product engineering report](./docs/v0.7-product-engineering-report
 | 🛡️ **Security Dashboard** | Health overview, trends, package scoring | `GET /api/v1/dependency-health/*` |
 | ⚠️ **Alerts** | New-vuln detection + webhook delivery | `GET /api/v1/dependency-health/alerts` |
 | 🧬 **Supply Chain** | Typosquatting + malicious-package detection | `GET /api/v1/supply-chain/check\|scan` |
+| 📦 **Offline Cache Proxy** | PEP 503 PyPI caching proxy w/ offline fallback | `GET /simple/{package}/`, `/api/v1/cache/analytics\|warmup` |
 | 📊 **CVSS Scoring** | CVSS v3.1 severity calculation | Built-in `calculate_severity()` |
 | 📈 **Analytics** | Trending/popular packages, event tracking | `GET /api/v1/analytics/trending\|popular\|stats/{name}` |
 | 📋 **Reports** | Monthly Best-of reports (JSON + HTML) | `GET/POST /api/v1/reports/` |
@@ -124,6 +130,22 @@ curl http://localhost:8000/api/v1/dependency-health/requests/score
 curl "http://localhost:8000/api/v1/supply-chain/check?package=requets"
 ```
 
+### Install packages through the caching proxy
+
+Run the standalone PEP 503 caching proxy (it does not need the main API):
+
+```bash
+# Start the proxy on port 8765
+uvicorn python_depot.routers.pep503:create_proxy_app --factory --port 8765
+
+# Point pip at it — installs are served from cache; the first run proxies PyPI
+pip config set global.index-url http://127.0.0.1:8765/simple/
+pip config set global.trusted-host 127.0.0.1
+pip install requests
+```
+
+Set `PYTHONDEPOT_OFFLINE_MODE=1` when starting the proxy for cache-only (air-gapped) operation. See [docs/offline-cache.md](docs/offline-cache.md) for warm-up, analytics, and offline usage.
+
 ### Interactive Docs
 
 - **Swagger UI**: http://localhost:8000/docs
@@ -185,6 +207,17 @@ curl "http://localhost:8000/api/v1/supply-chain/check?package=requets"
 
 Both endpoints return a 0-100 risk score (`score`) plus a `reasons` array of human-readable detection signals (known-malicious membership, name similarity to a popular package, low download count, recently published). See [docs/supply-chain.md](docs/supply-chain.md) for the full reference and score semantics.
 
+### Offline Cache Proxy
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/simple/{package}/` | PEP 503 simple index (cached version list; proxies upstream on a miss; `503` when uncached in offline mode) |
+| GET | `/simple/{package}/{filename}` | Cached wheel/sdist artifact bytes (proxies + caches missing artifacts; `503` when unavailable in offline mode) |
+| GET | `/api/v1/cache/analytics` | Cache analytics: `hit_rate`, `bytes_served`, `bytes_proxied`, `per_package` stats |
+| POST | `/api/v1/cache/warmup` | Prefetch packages: body `{"top_n": 10}` or `{"packages": ["six"]}`; returns `{requested, cached, failed}` |
+
+These routes live on the standalone proxy app (`uvicorn python_depot.routers.pep503:create_proxy_app --factory`) and are not mounted on the main API. The proxy is SSRF-guarded (host allowlist + IP-range check) and is **not an open proxy** — it can only fetch from PyPI. See [docs/offline-cache.md](docs/offline-cache.md) for quickstart, offline/air-gapped usage, and warm-up CLI usage.
+
 ### Analytics
 
 | Method | Path | Description |
@@ -227,6 +260,9 @@ railway up
 | `PORT` | App port | `8000` |
 | `DATABASE_URL` | Database connection string | SQLite (local) |
 | `PYTHONUNBUFFERED` | Log streaming | `1` |
+| `PYTHONDEPOT_OFFLINE_MODE` | Cache-only fallback for the PyPI proxy (`1`/`true`/`yes`) | unset (online) |
+
+The caching proxy is a separate process (`uvicorn python_depot.routers.pep503:create_proxy_app --factory`); see [docs/offline-cache.md](docs/offline-cache.md) for its full configuration (`PYTHONDEPOT_CACHE_DIR`, `PYTHONDEPOT_CACHE_TTL`, `PYTHONDEPOT_CACHE_MAX_BYTES`).
 
 ### Docker
 
@@ -296,11 +332,17 @@ python-depot/
 │   │   ├── models.py
 │   │   └── service.py
 │   ├── supply_chain.py         # Typosquatting + malicious-package scanner
+│   ├── pep503_cache.py         # PEP 503 caching proxy service (PyPICacheService)
+│   ├── artifact_store.py       # On-disk wheel/sdist artifact storage
+│   ├── warmup.py               # Cache warm-up service + CLI (main)
+│   ├── models/                 # SQLAlchemy models
+│   │   ├── pep503_cache.py     # CachedPackage + CachedArtifact
 │   ├── routers/               # FastAPI route handlers
 │   │   ├── __init__.py
 │   │   ├── analytics.py
 │   │   ├── dependency_health.py  # Security dashboard endpoints
 │   │   ├── packages.py
+│   │   ├── pep503.py           # Offline cache proxy app + routes (create_proxy_app)
 │   │   ├── ratings.py
 │   │   ├── reports.py
 │   │   ├── reviews.py
@@ -354,6 +396,8 @@ The app factory in `python_depot/api.py` registers all routers and applies four 
 2. **Security dashboard** — `/api/v1/dependency-health/*` with 5 endpoints for vulnerability monitoring
 3. **SSRF protection** — URL validation for all outbound HTTP calls
 4. **Railway deploy config** — Dockerfile + `railway.toml` for one-click deploy
+
+The offline PyPI caching proxy is a **separate FastAPI app** (`python_depot.routers.pep503.create_proxy_app`) that mounts `pep503.router` + `pep503.artifact_router` and shares the same SQLite database. It is deliberately not part of `create_app()` (the app route set is contract-pinned). See [docs/offline-cache.md](docs/offline-cache.md).
 
 ---
 
