@@ -7,6 +7,7 @@ __pycache__/
 *.sqlite3
 .ruff_cache/
 .pytest_cache/
+.pypi_cache/
 dist/
 build/
 *.egg-info/
