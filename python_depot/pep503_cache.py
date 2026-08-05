@@ -261,7 +261,14 @@ class PyPICacheService:
                 )
         if self.is_offline_mode():
             raise CacheMissError(f"package '{package}' not cached and offline mode is enabled")
-        html = await self.fetch_upstream_index(package)
+        try:
+            html = await self.fetch_upstream_index(package)
+        except CacheMissError:
+            # B2: a failed fetch must not leave a pending/uncommitted row
+            # behind (autoflush may already have INSERTed one) — the next
+            # request would otherwise inherit a dirty session.
+            self.db.rollback()
+            raise
         versions = _versions_from_html(html)
         if row is None:
             row = CachedPackage(package=package, normalized_name=norm, versions_json="[]")
@@ -282,7 +289,10 @@ class PyPICacheService:
 
         The URL is built from the pinned template and validated twice:
         against the host allowlist and against the repo-wide IP-range
-        SSRF check.  Any failure raises ``CacheMissError``.
+        SSRF check.  Any failure — including httpx transport errors
+        (connection refused, DNS, timeout) and non-2xx upstream
+        responses — raises ``CacheMissError`` so callers can fall back
+        to the cache or surface a 503 instead of a 500.
         """
         norm = normalize_package_name(package)
         url = PYPI_SIMPLE_URL.format(package=norm)
@@ -290,10 +300,15 @@ class PyPICacheService:
             raise CacheMissError(f"refusing unsafe upstream URL: {url}")
         if not _existing_ssrf_check(url):
             raise CacheMissError(f"refusing upstream URL failing IP-range SSRF check: {url}")
-        async with httpx.AsyncClient(timeout=self.config.upstream_timeout) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.text
+        try:
+            async with httpx.AsyncClient(timeout=self.config.upstream_timeout) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                return resp.text
+        except (httpx.RequestError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            # TimeoutException is a subclass of RequestError; both are listed
+            # so the wrapped set of failures is explicit and reviewable.
+            raise CacheMissError(f"upstream fetch failed for '{package}': {exc}") from exc
 
     def get_cached_versions(self, package: str) -> list[str]:
         """Return the stored version list (empty when uncached)."""
@@ -389,7 +404,8 @@ class PyPICacheService:
         index fetch.  The URL is validated against the SSRF guards, and
         on success the bytes are stored on disk with the ``CachedArtifact``
         row updated.  Returns None when the artifact is unavailable
-        (offline mode, not found upstream, or refused by the SSRF guards).
+        (offline mode, not found upstream, refused by the SSRF guards,
+        or the upstream fetch failed).
         """
         norm = normalize_package_name(package)
         if self.is_offline_mode():
@@ -402,7 +418,10 @@ class PyPICacheService:
         url = row.url if row is not None else None
         if url is None:
             base_url = PYPI_SIMPLE_URL.format(package=norm)
-            html = await self.fetch_upstream_index(package)
+            try:
+                html = await self.fetch_upstream_index(package)
+            except CacheMissError:
+                return None  # upstream unreachable → nothing to resolve
             url = _links_from_html(html, base_url).get(filename)
         if url is None:
             return None
@@ -410,11 +429,16 @@ class PyPICacheService:
             return None
         if not _existing_ssrf_check(url):
             return None
-        async with httpx.AsyncClient(timeout=self.config.upstream_timeout) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return None
-            data = resp.content
+        try:
+            async with httpx.AsyncClient(timeout=self.config.upstream_timeout) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    return None
+                data = resp.content
+        except (httpx.RequestError, httpx.TimeoutException, httpx.HTTPStatusError):
+            # B2: upstream transport/status failures map to "unavailable",
+            # matching the documented None contract (router → 503).
+            return None
         self.store.store(norm, filename, data)
         now = datetime.now(UTC).replace(tzinfo=None)
         if row is None:
@@ -466,12 +490,29 @@ class PyPICacheService:
         }
 
     def overall_stats(self) -> dict[str, Any]:
-        """Aggregate hit rate, bytes and per-package stats."""
+        """Aggregate hit rate, bytes and per-package stats (single query).
+
+        All aggregates are computed from one ``CachedPackage`` scan — the
+        previous per-package ``package_stats`` loop plus three full-table
+        scans was N+4 queries for what is a single table read.
+        """
         rows = self.db.query(CachedPackage).all()
-        per_package = {r.normalized_name: self.package_stats(r.package) for r in rows}
+        hits = sum(r.hit_count for r in rows)
+        misses = sum(r.miss_count for r in rows)
+        total = hits + misses
+        per_package = {
+            r.normalized_name: {
+                "hits": r.hit_count,
+                "misses": r.miss_count,
+                "bytes_served": r.bytes_served,
+                "bytes_proxied": r.bytes_proxied,
+                "versions": json.loads(r.versions_json or "[]"),
+            }
+            for r in rows
+        }
         return {
-            "hit_rate": self.hit_rate(),
-            "bytes_served": self.bytes_served(),
-            "bytes_proxied": self.bytes_proxied(),
+            "hit_rate": 0.0 if total == 0 else hits / total,
+            "bytes_served": sum(r.bytes_served for r in rows),
+            "bytes_proxied": sum(r.bytes_proxied for r in rows),
             "per_package": per_package,
         }

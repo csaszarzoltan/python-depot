@@ -63,7 +63,12 @@ class WarmupService:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point; returns process exit code."""
+    """CLI entry point; returns process exit code.
+
+    Exits 1 when nothing could be cached (e.g. upstream unreachable) so
+    automation can detect a failed warm-up; 0 otherwise (partial success
+    with at least one cached package counts as success).
+    """
     parser = argparse.ArgumentParser(prog="python-depot-cache-warmup")
     parser.add_argument(
         "--top",
@@ -72,5 +77,5 @@ def main(argv: list[str] | None = None) -> int:
         help="number of top packages to prefetch (default: 10)",
     )
     args = parser.parse_args(argv)
-    asyncio.run(WarmupService().prefetch_top(args.top))
-    return 0
+    result = asyncio.run(WarmupService().prefetch_top(args.top))
+    return 0 if result.cached > 0 else 1

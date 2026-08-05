@@ -25,6 +25,7 @@ set.  Deployments that want the proxy on the main app should include
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from html import escape
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
@@ -95,8 +96,13 @@ async def serve_simple_index(
             status_code=503,
             detail="cache miss: package not cached and upstream unreachable (offline mode)",
         )
-    html = f"<!DOCTYPE html><html><head><title>Links for {result.package}</title></head><body>"
-    html += f"<h1>Links for {result.package}</h1>"
+    # B1: every value interpolated into the HTML (package name, artifact
+    # filenames) is attacker-controllable via the URL path or the upstream
+    # link map — escape all of it so `<script>`/`"` cannot break out of
+    # elements or attributes (reflected/stored XSS for browser users).
+    package_escaped = escape(result.package)
+    html = f"<!DOCTYPE html><html><head><title>Links for {package_escaped}</title></head><body>"
+    html += f"<h1>Links for {package_escaped}</h1>"
     for version in result.versions:
         matched = [
             url for url in result.links if _filename_matches_version(version, _basename(url))
@@ -106,11 +112,18 @@ async def serve_simple_index(
                 _link_filename(result.package, version),
                 f"{result.package}-{version}.tar.gz",
             ):
-                html += f'<a href="/simple/{result.package}/{filename}">{filename}</a><br>'
+                filename_escaped = escape(filename)
+                html += (
+                    f'<a href="/simple/{package_escaped}/{filename_escaped}">'
+                    f"{filename_escaped}</a><br>"
+                )
             continue
         for url in matched:
-            filename = _basename(url)
-            html += f'<a href="/simple/{result.package}/{filename}">{filename}</a><br>'
+            filename_escaped = escape(_basename(url))
+            html += (
+                f'<a href="/simple/{package_escaped}/{filename_escaped}">'
+                f"{filename_escaped}</a><br>"
+            )
     html += "</body></html>"
     return HTMLResponse(content=html)
 

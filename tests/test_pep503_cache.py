@@ -15,6 +15,7 @@ import inspect
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 # Module-level import registers the tables on Base.metadata before the
@@ -606,6 +607,109 @@ class TestCacheTtlBehavioral:
         result = await service.get_simple_index("requests")
         assert result.served_from_cache is True
         assert "2.32.0" in result.versions
+
+
+class TestUpstreamNetworkErrorsBehavioral:
+    """B2 regression: httpx failures raise CacheMissError / return None.
+
+    ``fetch_upstream_index`` promises "any failure raises
+    CacheMissError"; before the fix httpx.ConnectError / TimeoutException
+    / HTTPStatusError propagated raw and the router answered 500 instead
+    of 503.
+    """
+
+    @staticmethod
+    def _boom_get(self, url, **kwargs):
+        """httpx.AsyncClient.get replacement raising a connect error."""
+        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", url))
+
+    @pytest.mark.anyio
+    async def test_fetch_upstream_index_connect_error_raises_cache_miss(
+        self, service, monkeypatch
+    ):
+        """A ConnectError is wrapped into CacheMissError, not propagated."""
+        monkeypatch.setattr(httpx.AsyncClient, "get", self._boom_get)
+        with pytest.raises(CacheMissError):
+            await service.fetch_upstream_index("requests")
+
+    @pytest.mark.anyio
+    async def test_fetch_upstream_index_timeout_raises_cache_miss(self, service, monkeypatch):
+        """A TimeoutException is wrapped into CacheMissError."""
+        async def timeout_get(self, url, **kwargs):
+            raise httpx.TimeoutException("timed out", request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", timeout_get)
+        with pytest.raises(CacheMissError):
+            await service.fetch_upstream_index("requests")
+
+    @pytest.mark.anyio
+    async def test_fetch_upstream_index_http_error_raises_cache_miss(self, service, monkeypatch):
+        """A non-2xx upstream response (raise_for_status) → CacheMissError."""
+        async def error_get(self, url, **kwargs):
+            return httpx.Response(500, request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", error_get)
+        with pytest.raises(CacheMissError):
+            await service.fetch_upstream_index("requests")
+
+    @pytest.mark.anyio
+    async def test_get_simple_index_connect_error_raises_cache_miss(
+        self, service, db_session, monkeypatch
+    ):
+        """get_simple_index propagates CacheMissError and leaves no dirty session."""
+        async def boom_get(self, url, **kwargs):
+            raise httpx.ConnectError("connection refused", request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", boom_get)
+        with pytest.raises(CacheMissError):
+            await service.get_simple_index("requests")
+        assert not db_session.new
+        assert not db_session.dirty
+
+    @pytest.mark.anyio
+    async def test_get_simple_index_failed_fetch_rolls_back_pending_row(
+        self, service, db_session, monkeypatch
+    ):
+        """A failed fetch rolls back a row autoflushed earlier in the session."""
+        db_session.add(
+            CachedPackage(package="requests", normalized_name="requests", versions_json="[]")
+        )  # pending; autoflushed by the first query inside get_simple_index
+
+        async def boom_get(self, url, **kwargs):
+            raise httpx.ConnectError("connection refused", request=httpx.Request("GET", url))
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", boom_get)
+        with pytest.raises(CacheMissError):
+            await service.get_simple_index("requests")
+        assert (
+            db_session.query(CachedPackage).filter_by(normalized_name="requests").first()
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_fetch_artifact_connect_error_returns_none(self, service, db_session, monkeypatch):
+        """fetch_artifact returns None on a transport error (documented contract)."""
+        db_session.add(
+            CachedArtifact(
+                package_name="requests",
+                filename="requests-2.32.0-py3-none-any.whl",
+                url="https://files.pythonhosted.org/packages/xx/requests-2.32.0-py3-none-any.whl",
+            )
+        )
+        db_session.commit()
+        monkeypatch.setattr(httpx.AsyncClient, "get", self._boom_get)
+        assert (
+            await service.fetch_artifact("requests", "requests-2.32.0-py3-none-any.whl")
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_fetch_artifact_index_resolution_failure_returns_none(
+        self, service, monkeypatch
+    ):
+        """A failed fresh index fetch during artifact resolution returns None."""
+        monkeypatch.setattr(httpx.AsyncClient, "get", self._boom_get)
+        assert await service.fetch_artifact("requests", "requests-2.32.0-py3-none-any.whl") is None
 
 
 class TestAnalyticsBehavioral:

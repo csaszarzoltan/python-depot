@@ -64,9 +64,17 @@ class ArtifactStore:
         return str(target)
 
     def get(self, package: str, filename: str) -> bytes | None:
-        """Return the artifact bytes, or None when missing/expired."""
+        """Return the artifact bytes, or None when missing/expired.
+
+        Per-entry TTL expiry is enforced lazily on access: an artifact
+        whose mtime is older than ``ttl_seconds`` is evicted and None is
+        returned (``ttl_seconds <= 0`` disables expiry).
+        """
         target = self.root_dir / self._safe_relative(package, filename)
         if not target.is_file():
+            return None
+        if self.ttl_seconds > 0 and time.time() - target.stat().st_mtime > self.ttl_seconds:
+            target.unlink()  # lazy per-entry TTL expiry
             return None
         os.utime(target, None)  # touch -> most recently used
         return target.read_bytes()

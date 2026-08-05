@@ -213,8 +213,11 @@ class TestLruEvictionBehavioral:
         base = small_store.root_dir / "a"
         # Pin explicit mtimes: tmpfs can have 1s granularity, which would make
         # the LRU order ambiguous (ties) and the eviction target nondeterministic.
-        os.utime(base / "f2.whl", (1_600_000_000, 1_600_000_000))
-        os.utime(base / "f1.whl", (1_600_000_010, 1_600_000_010))
+        # The pins use recent timestamps so the files stay inside the TTL
+        # window — get() now enforces per-entry TTL expiry lazily.
+        now = time.time()
+        os.utime(base / "f2.whl", (now - 60, now - 60))
+        os.utime(base / "f1.whl", (now - 50, now - 50))
         small_store.store("a", "f3.whl", b"12345")  # over cap → LRU (f2) evicted
         assert not small_store.contains("a", "f2.whl")
         small_store.get("a", "f1.whl")  # touch f1 → now most recent
@@ -247,3 +250,36 @@ class TestTtlEvictionBehavioral:
         os.utime(path, (stale, stale))
         store.evict_expired()
         assert store.get("requests", "old.whl") is None
+
+
+class TestSafeRelativeTraversalGuard:
+    """_safe_relative rejects absolute paths and '..' traversal."""
+
+    def test_accepts_plain_names(self, store):
+        """Well-formed package/filename pairs pass through unchanged."""
+        rel = ArtifactStore._safe_relative("requests", "requests-2.32.0-py3-none-any.whl")
+        assert rel == Path("requests") / "requests-2.32.0-py3-none-any.whl"
+
+    def test_rejects_absolute_package(self, store):
+        """An absolute package path cannot escape the store root."""
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("/etc", "x.whl")
+
+    def test_rejects_absolute_filename(self, store):
+        """An absolute filename cannot escape the store root."""
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("pkg", "/etc/passwd")
+
+    def test_rejects_parent_traversal_in_package(self, store):
+        """'..' segments in the package name are rejected."""
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("..", "x.whl")
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("../pkg", "x.whl")
+
+    def test_rejects_parent_traversal_in_filename(self, store):
+        """'..' segments in the filename are rejected."""
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("pkg", "../x.whl")
+        with pytest.raises(ValueError):
+            ArtifactStore._safe_relative("pkg", "a/../../x.whl")

@@ -20,17 +20,25 @@ Endpoints under test:
 from __future__ import annotations
 
 import inspect
+import json
+from urllib.parse import quote
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from python_depot.database import SessionLocal
-from python_depot.models.pep503_cache import CachedPackage
-from python_depot.pep503_cache import CacheConfig, PyPICacheService
+from python_depot.models.pep503_cache import CachedArtifact, CachedPackage
+from python_depot.pep503_cache import (
+    CacheConfig,
+    PyPICacheService,
+    normalize_package_name,
+)
 from python_depot.routers.pep503 import (
     WarmupRequest,
     _get_cache_service,
+    artifact_router,
     cache_analytics,
     cache_warmup,
     router,
@@ -90,6 +98,30 @@ def _bind_service(app: FastAPI, service: PyPICacheService) -> None:
     override dict keyed on that same callable is the only reliable hook.
     """
     app.dependency_overrides[_get_cache_service] = lambda: service
+
+
+def _break_upstream_clients(monkeypatch, error: type = httpx.ConnectError) -> None:
+    """Make service-created httpx clients fail; keep ASGI test clients working.
+
+    The cache service builds its own ``httpx.AsyncClient`` without a
+    ``transport`` kwarg, while the ASGI test client passes one.  By
+    patching ``__init__`` we can sabotage only the service's clients
+    (their ``get`` raises the given error, simulating an upstream
+    outage) and leave the test client routing to the app untouched —
+    a global ``AsyncClient.get`` patch would break the test client too.
+    """
+
+    def _patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        if "transport" not in kwargs:
+
+            async def boom(url, **kwargs):
+                raise error("simulated upstream failure", request=httpx.Request("GET", url))
+
+            self.get = boom  # instance attr shadows the class method
+
+    original_init = httpx.AsyncClient.__init__
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", _patched_init)
 
 
 # ---------------------------------------------------------------------------
@@ -398,3 +430,137 @@ class TestWarmupApiBehavioral:
         assert resp.status_code == 200
         data = resp.json()
         assert data["requested"] == 2
+
+
+class TestSimpleIndexHtmlEscapingBehavioral:
+    """B1 regression: no reflected/stored HTML injection in /simple/{package}/.
+
+    The package name (attacker-controlled via the URL path, persisted in
+    CachedPackage and re-rendered on every cache hit) and the artifact
+    filenames (from the upstream link map) must be HTML-escaped so
+    ``<script>``/``\"`` cannot break out of elements or attributes.
+    """
+
+    def _seed_package(
+        self, db_session, package: str, versions: list[str] | None = None
+    ) -> None:
+        db_session.add(
+            CachedPackage(
+                package=package,
+                normalized_name=normalize_package_name(package),  # PEP 503 lookup key
+                versions_json=json.dumps(versions or ["1.0.0"]),
+            )
+        )
+        db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_script_package_not_reflected_raw(
+        self, pep503_app, db_session, monkeypatch
+    ):
+        """A percent-encoded '<script>' package renders escaped, not raw."""
+        package = "<script>alert(1)<script>"
+        self._seed_package(db_session, package)
+        _bind_service(pep503_app, PyPICacheService(config=CacheConfig(), db=db_session))
+        async with _client_for(pep503_app) as ac:
+            resp = await ac.get(f"/simple/{quote(package, safe='')}/")
+        assert resp.status_code == 200
+        assert "<script>" not in resp.text
+        assert "&lt;script&gt;" in resp.text
+
+    @pytest.mark.anyio
+    async def test_full_reported_payload_escaped_everywhere(self, db_session):
+        """The exact review payload escapes in title, h1 and every link."""
+        package = "<script>alert(document.cookie)</script>"
+        self._seed_package(db_session, package)
+        service = PyPICacheService(config=CacheConfig(), db=db_session)
+        resp = await serve_simple_index(package, service)
+        body = resp.body.decode()
+        assert "<script>" not in body
+        assert "&lt;script&gt;" in body
+        assert "alert(document.cookie)" in body  # payload data survives as text
+
+    @pytest.mark.anyio
+    async def test_quote_package_breaks_no_attribute(self, pep503_app, db_session, monkeypatch):
+        """A package containing '\"' cannot break out of href/title attributes."""
+        package = 'x" onmouseover="alert(1)'
+        self._seed_package(db_session, package)
+        _bind_service(pep503_app, PyPICacheService(config=CacheConfig(), db=db_session))
+        async with _client_for(pep503_app) as ac:
+            resp = await ac.get(f"/simple/{quote(package, safe='')}/")
+        assert resp.status_code == 200
+        assert ' onmouseover="' not in resp.text
+        assert "&quot;" in resp.text
+        assert '<a href="/simple/x&quot;' in resp.text
+
+    @pytest.mark.anyio
+    async def test_artifact_filenames_escaped(self, pep503_app, db_session, monkeypatch):
+        """Hostile artifact filenames from the link map are escaped in href+text."""
+        db_session.add(
+            CachedPackage(package="pkg", normalized_name="pkg", versions_json='["1.0.0"]')
+        )
+        db_session.add(
+            CachedArtifact(
+                package_name="pkg",
+                filename="pkg-1.0.0-<script>.whl",
+                url="https://pypi.org/simple/pkg/pkg-1.0.0-<script>.whl",
+            )
+        )
+        db_session.add(
+            CachedArtifact(
+                package_name="pkg",
+                filename='pkg-1.0.0-"evil.whl',
+                url='https://pypi.org/simple/pkg/pkg-1.0.0-"evil.whl',
+            )
+        )
+        db_session.commit()
+        _bind_service(pep503_app, PyPICacheService(config=CacheConfig(), db=db_session))
+        async with _client_for(pep503_app) as ac:
+            resp = await ac.get("/simple/pkg/")
+        assert resp.status_code == 200
+        assert "<script>" not in resp.text
+        assert "&lt;script&gt;" in resp.text
+        assert '"evil' not in resp.text
+        assert "&quot;evil" in resp.text
+
+
+class TestUpstreamNetworkErrorApiBehavioral:
+    """B2 regression: upstream network errors map to 503, never 500."""
+
+    @pytest.mark.anyio
+    async def test_simple_index_returns_503_on_connect_error(
+        self, pep503_app, db_session, monkeypatch
+    ):
+        """An upstream ConnectError yields 503 (not the old raw 500)."""
+        service = PyPICacheService(config=CacheConfig(), db=db_session)
+        _break_upstream_clients(monkeypatch)
+        _bind_service(pep503_app, service)
+        async with _client_for(pep503_app) as ac:
+            resp = await ac.get("/simple/requests/")
+        assert resp.status_code == 503
+
+    @pytest.mark.anyio
+    async def test_simple_index_returns_503_on_timeout(
+        self, pep503_app, db_session, monkeypatch
+    ):
+        """An upstream timeout yields 503, not 500."""
+        service = PyPICacheService(config=CacheConfig(), db=db_session)
+        _break_upstream_clients(monkeypatch, error=httpx.TimeoutException)
+        _bind_service(pep503_app, service)
+        async with _client_for(pep503_app) as ac:
+            resp = await ac.get("/simple/requests/")
+        assert resp.status_code == 503
+
+    @pytest.mark.anyio
+    async def test_serve_artifact_returns_503_on_connect_error(
+        self, db_session, monkeypatch, tmp_path
+    ):
+        """serve_artifact maps an upstream ConnectError to 503, not 500."""
+        application = FastAPI()
+        application.include_router(router, prefix="")
+        application.include_router(artifact_router, prefix="")
+        service = PyPICacheService(config=CacheConfig(cache_dir=tmp_path), db=db_session)
+        _break_upstream_clients(monkeypatch)
+        _bind_service(application, service)
+        async with _client_for(application) as ac:
+            resp = await ac.get("/simple/requests/requests-2.32.0-py3-none-any.whl")
+        assert resp.status_code == 503

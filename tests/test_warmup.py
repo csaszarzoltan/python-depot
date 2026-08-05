@@ -254,3 +254,27 @@ class TestWarmupCliBehavioral:
     def test_cli_main_defaults_to_top_ten(self):
         """main() with no args runs the default top-10 prefetch."""
         assert main([]) == 0
+
+
+class TestWarmupCliExitCodeBehavioral:
+    """M3: CLI exit code reflects whether anything was cached."""
+
+    def test_cli_main_exits_nonzero_when_nothing_cached(self, monkeypatch):
+        """main() returns 1 when the warm-up cached nothing (automation detect)."""
+
+        class _FailingWarmup:
+            async def prefetch_top(self, top_n: int) -> WarmupResult:
+                return WarmupResult(requested=top_n, cached=0, failed=["requests", "numpy"])
+
+        monkeypatch.setattr("python_depot.warmup.WarmupService", _FailingWarmup)
+        assert main(["--top", "2"]) == 1
+
+    def test_cli_main_exits_zero_when_something_cached(self, monkeypatch):
+        """main() returns 0 when at least one package was cached."""
+
+        class _HappyWarmup:
+            async def prefetch_top(self, top_n: int) -> WarmupResult:
+                return WarmupResult(requested=top_n, cached=1, failed=["numpy"])
+
+        monkeypatch.setattr("python_depot.warmup.WarmupService", _HappyWarmup)
+        assert main(["--top", "2"]) == 0
