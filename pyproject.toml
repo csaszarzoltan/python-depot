@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 python-depot-migrate = "python_depot_migrate.cli:main"
+python-depot-cache-warmup = "python_depot.warmup:main"
 
 [project.optional-dependencies]
 dev = [

@@ -278,3 +278,42 @@ class TestWarmupCliExitCodeBehavioral:
 
         monkeypatch.setattr("python_depot.warmup.WarmupService", _HappyWarmup)
         assert main(["--top", "2"]) == 0
+
+
+class TestWarmupCliSelfContained:
+    """Follow-up t_3092d37e: standalone CLI contract.
+
+    The CLI must be self-contained — it initializes the cache tables
+    itself (no ``OperationalError: no such table`` on a fresh DB) and
+    runs when invoked as ``python -m python_depot.warmup``.
+    """
+
+    def test_main_initializes_db_before_running(self, monkeypatch):
+        """main() calls init_db() so standalone runs never hit missing tables."""
+        import python_depot.warmup as warmup_module
+
+        initialized: list[bool] = []
+        monkeypatch.setattr(warmup_module, "init_db", lambda: initialized.append(True))
+
+        class _NoopWarmup:
+            async def prefetch_top(self, top_n: int) -> WarmupResult:
+                return WarmupResult(requested=top_n, cached=1, failed=[])
+
+        monkeypatch.setattr(warmup_module, "WarmupService", _NoopWarmup)
+        assert main(["--top", "1"]) == 0
+        assert initialized == [True]
+
+    def test_module_runs_as_main_with_help(self):
+        """`python -m python_depot.warmup --help` prints usage (__main__ guard wired)."""
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "python_depot.warmup", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0
+        assert "python-depot-cache-warmup" in result.stdout
+        assert "usage:" in result.stdout.lower()

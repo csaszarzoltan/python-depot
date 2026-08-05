@@ -18,6 +18,7 @@ import argparse
 import asyncio
 from dataclasses import dataclass, field
 
+from python_depot.database import init_db
 from python_depot.pep503_cache import PyPICacheService
 
 __all__ = ["TOP_PACKAGES", "WarmupResult", "WarmupService", "main"]
@@ -65,10 +66,15 @@ class WarmupService:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns process exit code.
 
+    The cache tables are initialized on every run so the CLI is
+    self-contained — standalone use against a fresh database works
+    without a separate ``init_db()`` step.
+
     Exits 1 when nothing could be cached (e.g. upstream unreachable) so
     automation can detect a failed warm-up; 0 otherwise (partial success
     with at least one cached package counts as success).
     """
+    init_db()
     parser = argparse.ArgumentParser(prog="python-depot-cache-warmup")
     parser.add_argument(
         "--top",
@@ -79,3 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = asyncio.run(WarmupService().prefetch_top(args.top))
     return 0 if result.cached > 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

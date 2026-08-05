@@ -139,21 +139,29 @@ curl -X POST http://127.0.0.1:8765/api/v1/cache/warmup \
 | `cached` | int | Number successfully cached |
 | `failed` | array of strings | Package names that could not be cached (upstream unreachable, etc.) |
 
-### CLI — `python_depot.warmup.main`
+### CLI — `python-depot-cache-warmup`
 
-The same prefetch is available programmatically:
+The same prefetch is available from the command line. The package installs a `python-depot-cache-warmup` console script:
+
+```bash
+python-depot-cache-warmup --top 10
+```
+
+It can also be run as a module (useful without installation):
+
+```bash
+python -m python_depot.warmup --top 10
+```
+
+The CLI initializes the cache tables itself on startup, so it works standalone against a fresh database — no separate `init_db()` step is needed. `main()` returns `0` when at least one package was cached (partial success counts) and `1` when nothing was cached, so automation can detect a failed warm-up; the console script and module invocation exit with that code. Programmatic use:
 
 ```python
-from python_depot.database import init_db
 from python_depot.warmup import main
 
-init_db()  # create the cache tables (the proxy app does this on startup)
 raise SystemExit(main(["--top", "10"]))
 ```
 
-`main()` returns `0` when at least one package was cached (partial success counts) and `1` when nothing was cached, so automation can detect a failed warm-up. `WarmupService` also accepts a richer corpus (`WarmupService(top_packages=[...])`) than the shipped 3-package seed.
-
-> **Gap:** the warm-up CLI currently exists only as the `main()` function above. There is no installed `python-depot-cache-warmup` console script and no `python -m python_depot.warmup` entry point yet — the `prog="python-depot-cache-warmup"` name in the argument parser is aspirational until a `[project.scripts]` entry is added.
+`WarmupService` also accepts a richer corpus (`WarmupService(top_packages=[...])`) than the shipped 3-package seed.
 
 ---
 

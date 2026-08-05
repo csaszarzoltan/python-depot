@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Wired the warm-up CLI: added the `python-depot-cache-warmup` console script to `[project.scripts]` and a `__main__` guard so `python -m python_depot.warmup` runs; `main()` now calls `init_db()` so the CLI is self-contained against a fresh database (no more `OperationalError: no such table`).
+
 ## [0.11.0] — 2026-08-05
 
 ### Features
