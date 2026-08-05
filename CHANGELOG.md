@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Supply-chain attack detection
+## [0.11.0] — 2026-08-05
+
+### Features
+
+**Offline-capable PyPI caching proxy (PEP 503 simple index)**
+
+- Added a standalone FastAPI proxy app (`create_proxy_app()`) serving a PEP 503 simple index (`GET /simple/{package}/`) that caches upstream PyPI responses in SQLite and serves cached artifacts (`GET /simple/{package}/{filename}`), with offline mode (`PYTHONDEPOT_OFFLINE_MODE=1`) when upstream is unreachable.
+- Added `PyPICacheService` with per-entry lazy TTLs, SSRF-guarded upstream URL validation, artifact storage with path-traversal guards, and single-query analytics (`GET /api/v1/cache/analytics`: hit rate, bytes served vs proxied, per-package stats).
+- Added warmup support (`POST /api/v1/cache/warmup` + warmup CLI) that prefetches top-N packages; exits 1 when nothing was cached.
+- End-to-end verified with real pip: `pip install --index-url http://127.0.0.1:<port>/simple/` works both online (proxy + cache) and fully offline (served from cache, hit rate 0.8).
+
+**Supply-chain attack detection**
 
 - Added typosquatting detection for PyPI package names: `SimilarityEngine` combines Levenshtein/Damerau-Levenshtein edit distance with prefix/suffix heuristics against a top-20 popular-package corpus (configurable similarity threshold, default 0.8).
 - Added malicious-package feed integration: `MaliciousFeed` loads known-bad names from OSV entries plus an optional curated blocklist and refreshes on every scan.
@@ -15,6 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `SupplyChainVerdict` model with SQLite persistence (`store_verdict` / `list_verdicts`) using the existing `database.py` patterns.
 - Added two REST endpoints: `GET /api/v1/supply-chain/check?package=NAME` (single-package verdict: `{score, reasons}`) and `GET /api/v1/supply-chain/scan` (per-package verdicts for the dependency set plus `scanned_at`).
 - Added `SupplyChainAlerter` with exactly-once webhook notifications, firing only for newly detected suspicious packages (score >= 60).
+
+### Fixes
+
+- Addressed tech-lead review blockers on the caching proxy: HTML-escaped every interpolated value in the simple index, wrapped upstream httpx errors into `CacheMissError` → 503 (not 500) with `db.rollback()`, artifact fetch returns `None` on failure, lazy per-entry TTL in `ArtifactStore.get()`, single-query `overall_stats`, warmup exits 1 when nothing cached.
+- Eliminated 4 baseline test failures, a shared-DB race, and version drift.
+- Addressed supply-chain review findings F1–F6: validated package query params and capped `SimilarityEngine` input at 200 chars (CPU-amplification guard), fed real PyPI metadata (downloads, release dates) so unknown data never emits the low-download reason, wired webhook URL + blocklist from `PYTHONDEPOT_*` env config, DB-backed exactly-once dedup via `SupplyChainVerdict.notified`, batch upsert with one commit per scan, and webhook failure logging without exception/URL leakage.
+- Fixed I001 import sort in webhook failure tests.
+
+### Tests
+
+- Added pre-dev TDD suites + stubs for the PEP 503 caching proxy: ~1,600 lines across 4 new modules (`test_pep503_cache.py`, `test_pep503_api.py`, `test_artifact_store.py`, `test_warmup.py`); new-feature modules 141/141 green.
+- Added regression tests for all five tech-lead review items (html.escape coverage, rollback on failed fetch, `_safe_relative` traversal guards, lazy TTL, warmup exit codes).
+- Full suite: 1010 tests / 939 passed / 0 failed / 71 skipped across 36 modules; ruff clean on all changed files.
+
+### Docs
+
+- Documented typosquatting and malicious package detection in `docs/supply-chain.md`.
+- Updated README version badge and CHANGELOG.
 
 ## [0.10.0] — 2026-08-01
 

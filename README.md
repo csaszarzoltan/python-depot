@@ -2,7 +2,7 @@
 
 Python dependency intelligence and governance platform for package discovery, vulnerability monitoring, risk triage, upgrade planning, policy evaluation, and safe migration to `uv`.
 
-[![Version](https://img.shields.io/badge/version-0.10.0-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue)](./CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-pytest-brightgreen)](./tests)
 [![Security](https://img.shields.io/badge/security-dashboard-blue)](./docs/dependency-health.md)
 [![Ruff](https://img.shields.io/badge/ruff-passing-brightgreen)](./pyproject.toml)
